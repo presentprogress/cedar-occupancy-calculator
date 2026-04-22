@@ -1,18 +1,21 @@
 "use client"
 
-import { useRef, useState, useMemo, useCallback } from "react"
+import { useRef, useState, useMemo } from "react"
+import { Button } from "@/components/ui/button"
+import { RotateCcw } from "lucide-react"
 import { IBC_LOAD_FACTORS } from "@/lib/types"
 import type { EquipmentItem, SpaceArea, SpaceLayout } from "@/lib/types"
 
-// ─── Scale ────────────────────────────────────────────────────────────────────
-const PX = 12        // pixels per foot
-const SNAP = 0.5     // snap grid in feet
-const MIN_FT = 2     // minimum room dimension
+// ─── Scale & constants ────────────────────────────────────────────────────────
+const PX = 12           // pixels per foot
+const SNAP = 0.5        // ft
+const MIN_ROOM = 2      // ft minimum room dimension
+const SETBACK = 3       // ft pool-deck setback
+const EQUIP_GAP = 1.5   // ft gap between equipment items in default layout
 
-// ─── Colours ─────────────────────────────────────────────────────────────────
-type ColorSet = { fill: string; stroke: string; text: string }
-
-const LIGHT: Record<string, ColorSet> = {
+// ─── Room colours ─────────────────────────────────────────────────────────────
+type CS = { fill: string; stroke: string; text: string }
+const ROOM_COLORS: Record<string, CS> = {
   "Swimming Pool (Water Surface)":  { fill: "#dbeafe", stroke: "#2563eb", text: "#1e40af" },
   "Pool Deck":                      { fill: "#fef3c7", stroke: "#d97706", text: "#92400e" },
   "Exercise Room (Equipment)":      { fill: "#dcfce7", stroke: "#16a34a", text: "#15803d" },
@@ -29,8 +32,7 @@ const LIGHT: Record<string, ColorSet> = {
   "Mechanical":                     { fill: "#f9fafb", stroke: "#9ca3af", text: "#6b7280" },
   "Office":                         { fill: "#fffbeb", stroke: "#b45309", text: "#78350f" },
 }
-
-const DARK: Record<string, ColorSet> = {
+const ROOM_COLORS_DARK: Record<string, CS> = {
   "Swimming Pool (Water Surface)":  { fill: "#0b1e3d", stroke: "#3b82f6", text: "#93c5fd" },
   "Pool Deck":                      { fill: "#271800", stroke: "#d97706", text: "#fbbf24" },
   "Exercise Room (Equipment)":      { fill: "#0a1e0e", stroke: "#16a34a", text: "#86efac" },
@@ -47,342 +49,515 @@ const DARK: Record<string, ColorSet> = {
   "Mechanical":                     { fill: "#101010", stroke: "#374151", text: "#6b7280" },
   "Office":                         { fill: "#1a1300", stroke: "#b45309", text: "#fbbf24" },
 }
-
-const FALLBACK_LIGHT: ColorSet = { fill: "#f3f4f6", stroke: "#6b7280", text: "#374151" }
-const FALLBACK_DARK: ColorSet  = { fill: "#141414", stroke: "#374151", text: "#9ca3af" }
+const FB_L: CS = { fill: "#f3f4f6", stroke: "#6b7280", text: "#374151" }
+const FB_D: CS = { fill: "#141414", stroke: "#374151", text: "#9ca3af" }
 
 const EQUIP_PALETTE = [
-  "#f59e0b","#10b981","#3b82f6","#a78bfa",
-  "#f472b6","#34d399","#fb923c","#60a5fa",
+  "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
+  "#ec4899","#14b8a6","#f97316","#84cc16","#06b6d4",
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function ftToArch(ft: number): string {
-  const whole = Math.floor(ft)
-  const inches = Math.round((ft - whole) * 12)
-  return inches === 0 ? `${whole}' - 0"` : `${whole}' - ${inches}"`
+const px = (ft: number) => ft * PX
+const snap = (v: number) => Math.round(v / SNAP) * SNAP
+
+function isWater(t: string) {
+  return t === "Swimming Pool (Water Surface)" ||
+         t === "Spa/Hot Tub (Water Surface)" ||
+         t === "Cold Plunge (Water Surface)"
+}
+function isGym(t: string) {
+  return t === "Exercise Room (Equipment)" || t === "Exercise Room (Concentrated)"
+}
+function rectsOverlap(a: SpaceLayout, b: SpaceLayout) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+function getDims(item: EquipmentItem) {
+  const fw = Math.sqrt(item.footprint)
+  const border = item.accessSpace > 0
+    ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
+  return { fw, border }
+}
+function ftArch(ft: number) {
+  const w = Math.floor(ft), i = Math.round((ft - w) * 12)
+  return i === 0 ? `${w}' - 0"` : `${w}' - ${i}"`
 }
 
-function snap(v: number): number {
-  return Math.round(v / SNAP) * SNAP
+// ─── Equipment default layout within gym zone ─────────────────────────────────
+type IKey = string
+type EPos = { x: number; y: number }
+type Positions = Record<IKey, EPos>
+
+function buildEquipDefaults(
+  items: EquipmentItem[],
+  spaces: SpaceArea[],
+  layouts: Record<string, SpaceLayout>
+): Positions {
+  const gym = spaces.find(s => isGym(s.type))
+  const gl = gym ? layouts[gym.id] : null
+  let cx = gl ? gl.x + 2 : 4
+  let cy = gl ? gl.y + 2 : 100
+  const maxX = gl ? gl.x + gl.w - 2 : 120
+  let rowH = 0
+  const pos: Positions = {}
+
+  for (const item of items) {
+    const { fw, border } = getDims(item)
+    const slot = fw + 2 * border
+    for (let i = 0; i < item.quantity; i++) {
+      if (cx + slot > maxX && cx > (gl?.x ?? 4) + 2) {
+        cx = gl ? gl.x + 2 : 4
+        cy += rowH + EQUIP_GAP
+        rowH = 0
+      }
+      pos[`${item.id}:${i}`] = { x: cx + border, y: cy + border }
+      cx += slot + EQUIP_GAP
+      rowH = Math.max(rowH, slot)
+    }
+  }
+  return pos
 }
 
-function isGym(type: string) {
-  return type === "Exercise Room (Equipment)" || type === "Exercise Room (Concentrated)"
+function mergeEquipDefaults(
+  items: EquipmentItem[],
+  spaces: SpaceArea[],
+  layouts: Record<string, SpaceLayout>,
+  stored?: Positions
+): Positions {
+  const defaults = buildEquipDefaults(items, spaces, layouts)
+  if (!stored) return defaults
+  const out: Positions = {}
+  for (const item of items) {
+    for (let i = 0; i < item.quantity; i++) {
+      const k = `${item.id}:${i}`
+      out[k] = stored[k] ?? defaults[k]
+    }
+  }
+  return out
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-type Handle = "left" | "right" | "top" | "bottom" | "move"
-
-interface DragState {
-  id: string
-  handle: Handle
-  startX: number   // cursor position in feet at drag start
-  startY: number
-  startLayout: SpaceLayout
-}
+// ─── Drag state ───────────────────────────────────────────────────────────────
+type RoomHandle = "left" | "right" | "top" | "bottom" | "move"
+type Drag =
+  | { kind: "room"; id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "equip-zone"; key: IKey; startFt: EPos; startPos: EPos }
+  | { kind: "equip-fp";  key: IKey; startFt: EPos; startOff: EPos; border: number }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface SpacePlannerProps {
   spaces: SpaceArea[]
   equipment: EquipmentItem[]
   spaceLayouts: Record<string, SpaceLayout>
+  storedEquipPositions?: Positions
   isDark: boolean
   onSpaceResize: (id: string, layout: SpaceLayout) => void
+  onEquipPositionsChange: (p: Positions) => void
 }
 
+// ─── Component ────────────────────────────────────────────────────────────────
 export function SpacePlanner({
-  spaces,
-  equipment,
-  spaceLayouts,
-  isDark,
-  onSpaceResize,
+  spaces, equipment, spaceLayouts,
+  storedEquipPositions, isDark,
+  onSpaceResize, onEquipPositionsChange,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
-  const [drag, setDrag] = useState<DragState | null>(null)
-  const [localLayouts, setLocalLayouts] = useState<Record<string, SpaceLayout>>(spaceLayouts)
+  const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
 
-  // Sync when parent loads a new version
+  // Local mutable copies of layouts and equip positions
+  const [localLayouts, setLocalLayouts] = useState(spaceLayouts)
+  const [equipPos, setEquipPos] = useState<Positions>(() =>
+    mergeEquipDefaults(equipment, spaces, spaceLayouts, storedEquipPositions)
+  )
+  // Footprint offsets within clearance zone: { dx, dy } from clearance top-left; default = border
+  const [fpOffsets, setFpOffsets] = useState<Record<IKey, EPos>>({})
+
+  // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
   if (spaceLayouts !== prevLayouts.current) {
     prevLayouts.current = spaceLayouts
     setLocalLayouts(spaceLayouts)
   }
+  const prevEquip = useRef(storedEquipPositions)
+  if (storedEquipPositions !== prevEquip.current) {
+    prevEquip.current = storedEquipPositions
+    setEquipPos(mergeEquipDefaults(equipment, spaces, spaceLayouts, storedEquipPositions))
+  }
 
-  const palette = isDark ? DARK : LIGHT
-  const fallback = isDark ? FALLBACK_DARK : FALLBACK_LIGHT
+  // Colour helpers
+  const palette = isDark ? ROOM_COLORS_DARK : ROOM_COLORS
+  const fb = isDark ? FB_D : FB_L
   const gridColor = isDark ? "#131b2e" : "#e5e7eb"
-  const bgColor   = isDark ? "#080c17" : "#f8fafc"
-  const dimColor  = isDark ? "#4b5563" : "#9ca3af"
-  const occAmber  = isDark ? "#f59e0b" : "#d97706"
+  const bgColor = isDark ? "#080c17" : "#f8fafc"
+  const dimColor = isDark ? "#4b5563" : "#9ca3af"
+  const occColor = isDark ? "#f59e0b" : "#d97706"
 
-  // Equipment totals per item
-  const equipByItem = useMemo(() =>
-    equipment.map((item) => {
-      const shared = item.sharedClearance ?? 0
-      const unit = item.footprint + item.accessSpace
-      return { ...item, totalSpace: unit * item.quantity - shared * Math.max(0, item.quantity - 1) }
+  // Equipment instances
+  const instances = useMemo(() =>
+    equipment.flatMap((item, idx) => {
+      const { fw, border } = getDims(item)
+      const totalSF = (item.footprint + item.accessSpace) * item.quantity
+        - (item.sharedClearance ?? 0) * Math.max(0, item.quantity - 1)
+      return Array.from({ length: item.quantity }, (_, i) => ({
+        key: `${item.id}:${i}` as IKey,
+        item, fw, border,
+        color: EQUIP_PALETTE[idx % EQUIP_PALETTE.length],
+        label: item.quantity > 1 ? `${item.name} ${i + 1}` : item.name,
+        unitSF: item.footprint + item.accessSpace,
+        totalSF,
+      }))
     }),
     [equipment]
   )
 
-  // Canvas size: bounding box of all rooms + padding
+  // Merged water pairs
+  const mergedWaterPairs = useMemo(() => {
+    const waterSpaces = spaces.filter(s => isWater(s.type))
+    const merged = new Set<string>()
+    for (let i = 0; i < waterSpaces.length; i++) {
+      for (let j = i + 1; j < waterSpaces.length; j++) {
+        const a = localLayouts[waterSpaces[i].id]
+        const b = localLayouts[waterSpaces[j].id]
+        if (a && b && rectsOverlap(a, b)) {
+          merged.add(waterSpaces[i].id)
+          merged.add(waterSpaces[j].id)
+        }
+      }
+    }
+    return merged
+  }, [spaces, localLayouts])
+
+  // Canvas size
   const { svgW, svgH } = useMemo(() => {
     let maxX = 60, maxY = 80
     for (const l of Object.values(localLayouts)) {
-      maxX = Math.max(maxX, l.x + l.w + 8)
-      maxY = Math.max(maxY, l.y + l.h + 8)
+      maxX = Math.max(maxX, l.x + l.w + 12)
+      maxY = Math.max(maxY, l.y + l.h + 12)
+    }
+    for (const p of Object.values(equipPos)) {
+      maxX = Math.max(maxX, p.x + 12)
+      maxY = Math.max(maxY, p.y + 12)
     }
     return { svgW: maxX * PX, svgH: maxY * PX }
-  }, [localLayouts])
+  }, [localLayouts, equipPos])
 
-  // ── Pointer helpers ─────────────────────────────────────────────────────────
-  const toFeet = useCallback((e: React.PointerEvent): { x: number; y: number } => {
+  // ── Pointer ──────────────────────────────────────────────────────────────────
+  function toFt(e: React.PointerEvent): EPos {
     const r = svgRef.current!.getBoundingClientRect()
     return { x: (e.clientX - r.left) / PX, y: (e.clientY - r.top) / PX }
-  }, [])
+  }
 
-  function startDrag(e: React.PointerEvent<SVGElement>, id: string, handle: Handle) {
+  function startRoomDrag(e: React.PointerEvent<SVGElement>, id: string, handle: RoomHandle) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    const ft = toFeet(e)
-    setDrag({ id, handle, startX: ft.x, startY: ft.y, startLayout: { ...localLayouts[id] } })
     setSelected(id)
+    setDrag({ kind: "room", id, handle, startFt: toFt(e), startLayout: { ...localLayouts[id] } })
   }
 
-  function onSvgMove(e: React.PointerEvent<SVGSVGElement>) {
-    if (!drag) return
-    const ft = toFeet(e)
-    const dx = snap(ft.x - drag.startX)
-    const dy = snap(ft.y - drag.startY)
-    const { x, y, w, h } = drag.startLayout
+  function startEquipZoneDrag(e: React.PointerEvent<SVGElement>, key: IKey) {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ kind: "equip-zone", key, startFt: toFt(e), startPos: { ...equipPos[key] } })
+  }
 
-    let nl: SpaceLayout
-    switch (drag.handle) {
-      case "left":   nl = { x: Math.max(0, x + dx), y, w: Math.max(MIN_FT, w - dx), h }; break
-      case "right":  nl = { x, y, w: Math.max(MIN_FT, w + dx), h }; break
-      case "top":    nl = { x, y: Math.max(0, y + dy), w, h: Math.max(MIN_FT, h - dy) }; break
-      case "bottom": nl = { x, y, w, h: Math.max(MIN_FT, h + dy) }; break
-      default:       nl = { x: Math.max(0, x + dx), y: Math.max(0, y + dy), w, h }
+  function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, border: number) {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const current = fpOffsets[key] ?? { x: border, y: border }
+    setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, border })
+  }
+
+  function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (!drag) return
+    const ft = toFt(e)
+    const dx = snap(ft.x - drag.startFt.x)
+    const dy = snap(ft.y - drag.startFt.y)
+
+    if (drag.kind === "room") {
+      const { x, y, w, h } = drag.startLayout
+      let nl: SpaceLayout
+      switch (drag.handle) {
+        case "left":   nl = { x: Math.max(0, x + dx), y, w: Math.max(MIN_ROOM, w - dx), h }; break
+        case "right":  nl = { x, y, w: Math.max(MIN_ROOM, w + dx), h }; break
+        case "top":    nl = { x, y: Math.max(0, y + dy), w, h: Math.max(MIN_ROOM, h - dy) }; break
+        case "bottom": nl = { x, y, w, h: Math.max(MIN_ROOM, h + dy) }; break
+        default:       nl = { x: Math.max(0, x + dx), y: Math.max(0, y + dy), w, h }
+      }
+      setLocalLayouts(prev => ({ ...prev, [drag.id]: nl }))
+    } else if (drag.kind === "equip-zone") {
+      setEquipPos(prev => ({
+        ...prev,
+        [drag.key]: {
+          x: Math.max(0, drag.startPos.x + dx),
+          y: Math.max(0, drag.startPos.y + dy),
+        },
+      }))
+    } else if (drag.kind === "equip-fp") {
+      const border = drag.border
+      setFpOffsets(prev => ({
+        ...prev,
+        [drag.key]: {
+          x: Math.max(0, Math.min(2 * border, drag.startOff.x + dx)),
+          y: Math.max(0, Math.min(2 * border, drag.startOff.y + dy)),
+        },
+      }))
     }
-    setLocalLayouts(prev => ({ ...prev, [drag.id]: nl }))
   }
 
-  function onSvgUp() {
+  function onUp() {
     if (!drag) return
-    onSpaceResize(drag.id, localLayouts[drag.id])
+    if (drag.kind === "room") {
+      onSpaceResize(drag.id, localLayouts[drag.id])
+    } else if (drag.kind === "equip-zone") {
+      onEquipPositionsChange(equipPos)
+    }
     setDrag(null)
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
-  const px = (ft: number) => ft * PX
+  function resetEquip() {
+    const fresh = buildEquipDefaults(equipment, spaces, spaceLayouts)
+    setEquipPos(fresh)
+    setFpOffsets({})
+    onEquipPositionsChange(fresh)
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────────
+  const HLONG = 26, HSHORT = 8, HRADIUS = 3
 
   return (
-    <div className="overflow-auto rounded-b-xl" style={{ background: bgColor }}>
+    <div className="relative overflow-auto" style={{ background: bgColor }}>
+      {/* Reset button */}
+      <button
+        onClick={resetEquip}
+        className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur hover:bg-muted/60"
+      >
+        <RotateCcw className="h-3 w-3" /> Reset equipment
+      </button>
+
       <svg
         ref={svgRef}
         width={svgW}
         height={svgH}
         className="block select-none"
-        onPointerMove={onSvgMove}
-        onPointerUp={onSvgUp}
-        onPointerLeave={onSvgUp}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerLeave={onUp}
         onClick={() => setSelected(null)}
       >
         <defs>
-          {/* 1-ft minor grid */}
-          <pattern id="grid1" width={PX} height={PX} patternUnits="userSpaceOnUse">
+          <pattern id="g1" width={PX} height={PX} patternUnits="userSpaceOnUse">
             <path d={`M ${PX} 0 L 0 0 0 ${PX}`} fill="none" stroke={gridColor} strokeWidth="0.4" />
           </pattern>
-          {/* 10-ft major grid */}
-          <pattern id="grid10" width={PX * 10} height={PX * 10} patternUnits="userSpaceOnUse">
-            <rect width={PX * 10} height={PX * 10} fill="url(#grid1)" />
-            <path d={`M ${PX * 10} 0 L 0 0 0 ${PX * 10}`} fill="none" stroke={gridColor} strokeWidth="1" strokeOpacity="0.6" />
+          <pattern id="g10" width={PX * 10} height={PX * 10} patternUnits="userSpaceOnUse">
+            <rect width={PX * 10} height={PX * 10} fill="url(#g1)" />
+            <path d={`M ${PX * 10} 0 L 0 0 0 ${PX * 10}`} fill="none" stroke={gridColor} strokeWidth="1" strokeOpacity="0.5" />
+          </pattern>
+          <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="7" stroke="#f59e0b" strokeWidth="3" strokeOpacity="0.35" />
           </pattern>
         </defs>
 
-        {/* Background */}
         <rect width={svgW} height={svgH} fill={bgColor} />
-        <rect width={svgW} height={svgH} fill="url(#grid10)" />
+        <rect width={svgW} height={svgH} fill="url(#g10)" />
 
-        {/* Rooms */}
-        {spaces.map((space) => {
+        {/* ── ROOMS ── */}
+        {spaces.map(space => {
           const layout = localLayouts[space.id]
           if (!layout) return null
-
-          const colors = palette[space.type] ?? fallback
+          const colors = palette[space.type] ?? fb
           const rx = px(layout.x), ry = px(layout.y)
           const rw = px(layout.w), rh = px(layout.h)
-          const cx = rx + rw / 2, cy = ry + rh / 2
+          const cx2 = rx + rw / 2, cy2 = ry + rh / 2
           const isSel = selected === space.id
-          const isDragging = drag?.id === space.id
+          const sf = Math.round(layout.w * layout.h)
+          const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
+          const isWaterSpace = isWater(space.type)
+          const isMerged = mergedWaterPairs.has(space.id)
 
-          const occ = Math.ceil(space.squareFeet / IBC_LOAD_FACTORS[space.type])
-          const gymSpace = isGym(space.type)
-          const totalGymSF = space.squareFeet
-
-          // Equipment tile heights
-          const equipRowH = gymSpace && equipByItem.length > 0 ? Math.min(rh * 0.35, 40) : 0
-
-          // Handle appearance
-          const HLONG = 28, HSHORT = 8, HRADIUS = 3
-          const hFill = isDark ? "#1e293b" : "#ffffff"
-          const hStroke = colors.stroke
+          const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
             <g key={space.id}>
+              {/* Pool/spa setback ring when selected */}
+              {isWaterSpace && isSel && (
+                <>
+                  <rect
+                    x={rx - px(SETBACK)} y={ry - px(SETBACK)}
+                    width={rw + px(SETBACK) * 2} height={rh + px(SETBACK) * 2}
+                    fill="none"
+                    stroke={isDark ? "#fbbf24" : "#d97706"}
+                    strokeWidth={1} strokeDasharray="5 4"
+                    rx={4} pointerEvents="none"
+                  />
+                  <text
+                    x={cx2} y={ry - px(SETBACK) - 4}
+                    textAnchor="middle" fontSize={8}
+                    fill={isDark ? "#fbbf24" : "#d97706"}
+                    fontFamily="'Geist Mono',monospace"
+                    pointerEvents="none"
+                  >
+                    3&apos; min deck
+                  </text>
+                </>
+              )}
+
               {/* Room body */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
                 fill={colors.fill}
-                stroke={colors.stroke}
-                strokeWidth={isSel ? 2.5 : 1.5}
+                stroke={isMerged ? colors.stroke : colors.stroke}
+                strokeWidth={isSel ? 2.5 : isMerged ? 2 : 1.5}
                 strokeDasharray={space.isConditioned ? undefined : "6 3"}
                 rx={3}
-                style={{ cursor: isDragging ? "grabbing" : "grab" }}
-                onPointerDown={(e) => startDrag(e, space.id, "move")}
+                style={{ cursor: "grab" }}
+                onPointerDown={e => startRoomDrag(e, space.id, "move")}
               />
+
+              {/* Merged water glow */}
+              {isMerged && (
+                <rect
+                  x={rx} y={ry} width={rw} height={rh}
+                  fill={colors.stroke} fillOpacity={0.12}
+                  rx={3} pointerEvents="none"
+                />
+              )}
 
               {/* Conditioned accent bar */}
               {space.isConditioned && (
                 <rect x={rx + 3} y={ry} width={rw - 6} height={3}
-                  fill={colors.stroke} fillOpacity={0.5} rx={1.5} pointerEvents="none" />
+                  fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
               {/* Labels */}
-              {rw > 30 && rh > 24 && (
+              {rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
-                  <text x={cx} y={ry + Math.min(22, rh * 0.18)}
-                    textAnchor="middle" fontSize={Math.min(12, Math.max(8, rw / 9))}
+                  <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
+                    textAnchor="middle"
+                    fontSize={Math.min(12, Math.max(8, rw / 9))}
                     fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
                     {rw > 80 ? space.name : space.name.split(" ")[0]}
                   </text>
-                  {rh > 50 && rw > 44 && (
-                    <text x={cx} y={ry + Math.min(36, rh * 0.28)}
-                      textAnchor="middle" fontSize={Math.min(10, Math.max(7, rw / 13))}
-                      fill={colors.text} opacity={0.65} fontFamily="'Geist Mono',monospace">
-                      {space.squareFeet.toLocaleString()} SF
+                  {rh > 44 && rw > 40 && (
+                    <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
+                      textAnchor="middle"
+                      fontSize={Math.min(10, Math.max(7, rw / 14))}
+                      fill={colors.text} opacity={0.6} fontFamily="'Geist Mono',monospace">
+                      {sf.toLocaleString()} SF
                     </text>
                   )}
-                  {/* Occupancy — amber, bottom of zone */}
-                  <text x={cx} y={ry + rh - equipRowH - 14}
-                    textAnchor="middle" fontSize={Math.min(18, Math.max(9, rw / 5.5))}
-                    fill={occAmber} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                  <text x={cx2} y={ry + rh - 14}
+                    textAnchor="middle"
+                    fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                    fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
                     {occ}
                   </text>
-                  {rw > 40 && (
-                    <text x={cx} y={ry + rh - equipRowH - 4}
-                      textAnchor="middle" fontSize={7}
-                      fill={colors.text} opacity={0.45} fontFamily="'Geist Mono',monospace">
+                  {rw > 36 && (
+                    <text x={cx2} y={ry + rh - 4}
+                      textAnchor="middle" fontSize={6.5}
+                      fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
                       OCC
                     </text>
                   )}
                 </g>
               )}
 
-              {/* Equipment tiles within gym zone */}
-              {gymSpace && equipRowH > 0 && (() => {
-                let ex = rx + 2
-                const tileY = ry + rh - equipRowH + 2
-                const tileH = equipRowH - 4
-                return equipByItem.map((item, i) => {
-                  const frac = totalGymSF > 0 ? item.totalSpace / totalGymSF : 0
-                  const tw = Math.max(2, frac * (rw - 4) - 1.5)
-                  const color = EQUIP_PALETTE[i % EQUIP_PALETTE.length]
-                  const el = (
-                    <g key={item.id} pointerEvents="none">
-                      <rect x={ex} y={tileY} width={tw} height={tileH}
-                        fill={color} fillOpacity={0.28} stroke={color} strokeWidth={0.7} rx={2} />
-                      {tw > 28 && (
-                        <text x={ex + tw / 2} y={tileY + tileH / 2 + 3}
-                          textAnchor="middle" fontSize={Math.min(8, tw / 4)}
-                          fill={color} fontWeight="600" fontFamily="system-ui,sans-serif">
-                          {item.quantity > 1 ? `${item.name} ×${item.quantity}` : item.name}
-                        </text>
-                      )}
-                    </g>
-                  )
-                  ex += tw + 1.5
-                  return el
-                })
-              })()}
-
-              {/* ── Resize handles (always visible when selected, hover otherwise) ── */}
-              {/* Left */}
-              <rect
-                x={rx - HSHORT / 2} y={cy - HLONG / 2}
-                width={HSHORT} height={HLONG}
-                fill={hFill} stroke={hStroke} strokeWidth={1.5} rx={HRADIUS}
-                style={{ cursor: "ew-resize" }}
-                className={isSel ? "" : "opacity-0 hover:opacity-100"}
-                onPointerDown={(e) => startDrag(e, space.id, "left")}
-              />
-              {/* Right */}
-              <rect
-                x={rx + rw - HSHORT / 2} y={cy - HLONG / 2}
-                width={HSHORT} height={HLONG}
-                fill={hFill} stroke={hStroke} strokeWidth={1.5} rx={HRADIUS}
-                style={{ cursor: "ew-resize" }}
-                className={isSel ? "" : "opacity-0 hover:opacity-100"}
-                onPointerDown={(e) => startDrag(e, space.id, "right")}
-              />
-              {/* Top */}
-              <rect
-                x={cx - HLONG / 2} y={ry - HSHORT / 2}
-                width={HLONG} height={HSHORT}
-                fill={hFill} stroke={hStroke} strokeWidth={1.5} rx={HRADIUS}
-                style={{ cursor: "ns-resize" }}
-                className={isSel ? "" : "opacity-0 hover:opacity-100"}
-                onPointerDown={(e) => startDrag(e, space.id, "top")}
-              />
-              {/* Bottom */}
-              <rect
-                x={cx - HLONG / 2} y={ry + rh - HSHORT / 2}
-                width={HLONG} height={HSHORT}
-                fill={hFill} stroke={hStroke} strokeWidth={1.5} rx={HRADIUS}
-                style={{ cursor: "ns-resize" }}
-                className={isSel ? "" : "opacity-0 hover:opacity-100"}
-                onPointerDown={(e) => startDrag(e, space.id, "bottom")}
-              />
-
               {/* Dimension callouts when selected */}
               {isSel && (
                 <g pointerEvents="none" fontSize={9} fontFamily="'Geist Mono',monospace" fill={dimColor}>
-                  {/* Width at bottom */}
-                  <line x1={rx} y1={ry + rh + 14} x2={rx + rw} y2={ry + rh + 14}
-                    stroke={dimColor} strokeWidth={0.75} />
-                  <line x1={rx} y1={ry + rh + 10} x2={rx} y2={ry + rh + 18}
-                    stroke={dimColor} strokeWidth={0.75} />
-                  <line x1={rx + rw} y1={ry + rh + 10} x2={rx + rw} y2={ry + rh + 18}
-                    stroke={dimColor} strokeWidth={0.75} />
-                  <text x={cx} y={ry + rh + 25} textAnchor="middle">{ftToArch(layout.w)}</text>
-                  {/* Height at right */}
-                  <line x1={rx + rw + 14} y1={ry} x2={rx + rw + 14} y2={ry + rh}
-                    stroke={dimColor} strokeWidth={0.75} />
-                  <line x1={rx + rw + 10} y1={ry} x2={rx + rw + 18} y2={ry}
-                    stroke={dimColor} strokeWidth={0.75} />
-                  <line x1={rx + rw + 10} y1={ry + rh} x2={rx + rw + 18} y2={ry + rh}
-                    stroke={dimColor} strokeWidth={0.75} />
-                  <text
-                    x={rx + rw + 26} y={cy + 3}
-                    textAnchor="middle"
-                    transform={`rotate(-90 ${rx + rw + 26} ${cy})`}>
-                    {ftToArch(layout.h)}
+                  <line x1={rx} y1={ry + rh + 13} x2={rx + rw} y2={ry + rh + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={rx} y1={ry + rh + 9} x2={rx} y2={ry + rh + 17} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={rx + rw} y1={ry + rh + 9} x2={rx + rw} y2={ry + rh + 17} stroke={dimColor} strokeWidth={0.7} />
+                  <text x={cx2} y={ry + rh + 24} textAnchor="middle">{ftArch(layout.w)}</text>
+                  <line x1={rx + rw + 13} y1={ry} x2={rx + rw + 13} y2={ry + rh} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={rx + rw + 9} y1={ry} x2={rx + rw + 17} y2={ry} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={rx + rw + 9} y1={ry + rh} x2={rx + rw + 17} y2={ry + rh} stroke={dimColor} strokeWidth={0.7} />
+                  <text x={rx + rw + 25} y={cy2 + 3} textAnchor="middle"
+                    transform={`rotate(-90 ${rx + rw + 25} ${cy2})`}>{ftArch(layout.h)}
                   </text>
                 </g>
               )}
+
+              {/* Resize handles */}
+              {(["left","right","top","bottom"] as RoomHandle[]).map(side => {
+                const hx = side === "left" ? rx - HSHORT / 2
+                  : side === "right" ? rx + rw - HSHORT / 2
+                  : cx2 - HLONG / 2
+                const hy = side === "top" ? ry - HSHORT / 2
+                  : side === "bottom" ? ry + rh - HSHORT / 2
+                  : cy2 - HLONG / 2
+                const hw = (side === "top" || side === "bottom") ? HLONG : HSHORT
+                const hh = (side === "left" || side === "right") ? HLONG : HSHORT
+                const cursor = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                return (
+                  <rect key={side}
+                    x={hx} y={hy} width={hw} height={hh}
+                    fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
+                    style={{ cursor }}
+                    className={isSel ? "opacity-100" : "opacity-0 hover:opacity-100"}
+                    onPointerDown={e => startRoomDrag(e, space.id, side)}
+                  />
+                )
+              })}
+            </g>
+          )
+        })}
+
+        {/* ── EQUIPMENT (on top of rooms) ── */}
+        {instances.map(({ key, item, fw, border, color, label, unitSF }) => {
+          const pos = equipPos[key]
+          if (!pos) return null
+          const fpOff = fpOffsets[key] ?? { x: border, y: border }
+          const clearX = px(pos.x - border), clearY = px(pos.y - border)
+          const clearS = px(fw + 2 * border)
+          const fpX = px(pos.x - border + fpOff.x)
+          const fpY = px(pos.y - border + fpOff.y)
+          const fpS = px(fw)
+          const isDraggingZone = drag?.kind === "equip-zone" && drag.key === key
+          const isDraggingFp = drag?.kind === "equip-fp" && drag.key === key
+          const fSize = Math.max(7, Math.min(11, fpS / 3.5))
+
+          return (
+            <g key={key}>
+              {/* Clearance zone — drag to move whole unit */}
+              <rect
+                x={clearX} y={clearY} width={clearS} height={clearS}
+                fill={color} fillOpacity={isDraggingZone ? 0.12 : 0.06}
+                stroke={color} strokeWidth={1} strokeDasharray="5 3" rx={3}
+                style={{ cursor: isDraggingZone ? "grabbing" : "grab" }}
+                onPointerDown={e => startEquipZoneDrag(e, key)}
+              />
+              {/* Footprint — drag within clearance zone */}
+              <rect
+                x={fpX} y={fpY} width={fpS} height={fpS}
+                fill={color} fillOpacity={isDraggingFp ? 0.55 : 0.22}
+                stroke={color} strokeWidth={1.5} rx={2}
+                style={{ cursor: isDraggingFp ? "grabbing" : "crosshair" }}
+                onPointerDown={e => startEquipFpDrag(e, key, border)}
+              />
+              {/* Labels on footprint */}
+              <g pointerEvents="none">
+                <text x={fpX + fpS / 2} y={fpY + fpS / 2 - fSize * 0.5}
+                  textAnchor="middle" fontSize={fSize}
+                  fill={color} fontWeight="600" fontFamily="system-ui,sans-serif">
+                  {label}
+                </text>
+                <text x={fpX + fpS / 2} y={fpY + fpS / 2 + fSize * 0.9}
+                  textAnchor="middle" fontSize={Math.max(6, fSize - 2)}
+                  fill={color} opacity={0.75} fontFamily="'Geist Mono',monospace">
+                  {unitSF} SF
+                </text>
+              </g>
             </g>
           )
         })}
 
         {/* Scale bar */}
-        <g transform={`translate(12, ${svgH - 22})`}>
-          <rect x={0} y={0} width={PX * 10} height={4} fill={dimColor} fillOpacity={0.5} />
-          <rect x={0} y={0} width={PX * 5} height={4} fill={dimColor} fillOpacity={0.8} />
-          <text x={0} y={13} fontSize={7.5} fill={dimColor} fontFamily="'Geist Mono',monospace">0</text>
-          <text x={PX * 5 - 4} y={13} fontSize={7.5} fill={dimColor} fontFamily="'Geist Mono',monospace">5'</text>
-          <text x={PX * 10 - 4} y={13} fontSize={7.5} fill={dimColor} fontFamily="'Geist Mono',monospace">10'</text>
+        <g transform={`translate(12, ${svgH - 22})`} pointerEvents="none">
+          <rect x={0} y={0} width={px(10)} height={4} fill={dimColor} fillOpacity={0.4} />
+          <rect x={0} y={0} width={px(5)} height={4} fill={dimColor} fillOpacity={0.7} />
+          <text x={0} y={13} fontSize={7} fill={dimColor} fontFamily="'Geist Mono',monospace">0</text>
+          <text x={px(5) - 4} y={13} fontSize={7} fill={dimColor} fontFamily="'Geist Mono',monospace">5'</text>
+          <text x={px(10) - 4} y={13} fontSize={7} fill={dimColor} fontFamily="'Geist Mono',monospace">10'</text>
         </g>
       </svg>
     </div>

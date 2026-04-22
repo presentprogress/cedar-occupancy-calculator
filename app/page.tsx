@@ -280,7 +280,7 @@ export default function OccupancyCalculator() {
           <div className="flex items-center justify-between border-b border-border/60 bg-card px-4 py-2.5">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Floor Plan · drag edges to resize · SF updates automatically
+                Floor Plan · drag room edges to resize · drag equipment to reposition · drag footprint inside clearance zone
               </p>
             </div>
             {calc.totalGymSF > 0 && (
@@ -297,8 +297,15 @@ export default function OccupancyCalculator() {
             spaces={spaces}
             equipment={equipment}
             spaceLayouts={spaceLayouts}
+            storedEquipPositions={appState.plannerLayout?.equipmentPositions}
             isDark={isDark}
             onSpaceResize={handleSpaceResize}
+            onEquipPositionsChange={(positions) =>
+              setAppState((prev) => ({
+                ...prev,
+                plannerLayout: { equipmentPositions: positions },
+              }), { skipHistory: true })
+            }
           />
         </section>
 

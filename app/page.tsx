@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useMemo, useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,40 +11,19 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Trash2, Plus, AlertTriangle } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-// IBC Occupancy Load Factors (sq ft per person)
-const IBC_LOAD_FACTORS = {
-  "Swimming Pool (Water Surface)": 50,
-  "Pool Deck": 15,
-  "Exercise Room (Equipment)": 50,
-  "Exercise Room (Concentrated)": 15,
-  "Locker Room": 50,
-  "Sauna/Steam Room": 15,
-  "Spa/Hot Tub (Water Surface)": 50,
-  "Cold Plunge (Water Surface)": 50,
-  "Lobby/Reception": 15,
-  "Storage": 300,
-  "Mechanical": 300,
-  "Office": 100,
-} as const
-
-type SpaceType = keyof typeof IBC_LOAD_FACTORS
-
-interface SpaceArea {
-  id: string
-  name: string
-  type: SpaceType
-  squareFeet: number
-  isConditioned: boolean
-}
-
-interface EquipmentItem {
-  id: string
-  name: string
-  footprint: number
-  accessSpace: number
-  quantity: number
-}
+import { PersistencePanel } from "@/components/persistence-panel"
+import { VersionCompare } from "@/components/version-compare"
+import { useUndoableState } from "@/hooks/use-undoable-state"
+import { useAutoSnapshot } from "@/hooks/use-auto-snapshot"
+import {
+  IBC_LOAD_FACTORS,
+  type SpaceType,
+  type SpaceArea,
+  type EquipmentItem,
+  type AppState,
+  getWCRequirements,
+  getLavatoryCount,
+} from "@/lib/types"
 
 const defaultSpaces: SpaceArea[] = [
   { id: "1", name: "Main Pool", type: "Swimming Pool (Water Surface)", squareFeet: 800, isConditioned: true },
@@ -62,47 +41,75 @@ const defaultEquipment: EquipmentItem[] = [
   { id: "5", name: "Cable Machine", footprint: 25, accessSpace: 60, quantity: 1 },
 ]
 
+const initialState: AppState = {
+  spaces: defaultSpaces,
+  equipment: defaultEquipment,
+  unconditionedLimit: 500,
+  maxOccupants: undefined,
+  farCap: undefined,
+}
+
 export default function OccupancyCalculator() {
-  const [spaces, setSpaces] = useState<SpaceArea[]>(defaultSpaces)
-  const [equipment, setEquipment] = useState<EquipmentItem[]>(defaultEquipment)
-  const [unconditionedLimit, setUnconditionedLimit] = useState(500)
+  const { state: appState, setState: setAppState, undo } = useUndoableState<AppState>(initialState)
+  const [compareOpen, setCompareOpen] = useState(false)
+
+  useAutoSnapshot(appState)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [undo])
+
+  const { spaces, equipment, unconditionedLimit, maxOccupants, farCap } = appState
 
   const addSpace = () => {
     const newSpace: SpaceArea = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: "New Space",
       type: "Pool Deck",
       squareFeet: 0,
       isConditioned: true,
     }
-    setSpaces([...spaces, newSpace])
+    setAppState((prev) => ({ ...prev, spaces: [...prev.spaces, newSpace] }))
   }
 
   const updateSpace = (id: string, updates: Partial<SpaceArea>) => {
-    setSpaces(spaces.map((s) => (s.id === id ? { ...s, ...updates } : s)))
+    setAppState((prev) => ({
+      ...prev,
+      spaces: prev.spaces.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+    }))
   }
 
   const removeSpace = (id: string) => {
-    setSpaces(spaces.filter((s) => s.id !== id))
+    setAppState((prev) => ({ ...prev, spaces: prev.spaces.filter((s) => s.id !== id) }))
   }
 
   const addEquipment = () => {
-    const newEquipment: EquipmentItem = {
-      id: Date.now().toString(),
+    const newItem: EquipmentItem = {
+      id: crypto.randomUUID(),
       name: "New Equipment",
       footprint: 15,
       accessSpace: 30,
       quantity: 1,
     }
-    setEquipment([...equipment, newEquipment])
+    setAppState((prev) => ({ ...prev, equipment: [...prev.equipment, newItem] }))
   }
 
   const updateEquipment = (id: string, updates: Partial<EquipmentItem>) => {
-    setEquipment(equipment.map((e) => (e.id === id ? { ...e, ...updates } : e)))
+    setAppState((prev) => ({
+      ...prev,
+      equipment: prev.equipment.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+    }))
   }
 
   const removeEquipment = (id: string) => {
-    setEquipment(equipment.filter((e) => e.id !== id))
+    setAppState((prev) => ({ ...prev, equipment: prev.equipment.filter((e) => e.id !== id) }))
   }
 
   const calculations = useMemo(() => {
@@ -125,7 +132,12 @@ export default function OccupancyCalculator() {
     const conditionedSF = spaces.filter((s) => s.isConditioned).reduce((sum, s) => sum + s.squareFeet, 0)
     const unconditionedSF = spaces.filter((s) => !s.isConditioned).reduce((sum, s) => sum + s.squareFeet, 0)
     const totalSF = conditionedSF + unconditionedSF + totalEquipmentSpace
-    const totalOccupancy = spaceResults.reduce((sum, s) => sum + s.occupancy, 0) + equipmentOccupancy
+    const spaceOccupancy = spaceResults.reduce((sum, s) => sum + s.occupancy, 0)
+    const totalOccupancy = spaceOccupancy + equipmentOccupancy
+
+    const wc = getWCRequirements(totalOccupancy)
+    const lavatories = getLavatoryCount(totalOccupancy)
+    const remainingOccupantLoad = maxOccupants !== undefined ? maxOccupants - totalOccupancy : undefined
 
     return {
       spaceResults,
@@ -137,18 +149,31 @@ export default function OccupancyCalculator() {
       totalSF,
       totalOccupancy,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
+      farOverLimit: farCap !== undefined && conditionedSF > farCap,
+      remainingOccupantLoad,
+      wc,
+      lavatories,
     }
-  }, [spaces, equipment, unconditionedLimit])
+  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap])
 
   return (
     <main className="min-h-screen bg-background p-4 md:p-8">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-8">
+        <header className="mb-6">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">IBC Amenity Space Occupancy Calculator</h1>
           <p className="mt-2 text-muted-foreground">
             Calculate occupancy loads based on International Building Code standards
           </p>
         </header>
+
+        {/* Persistence Bar */}
+        <div className="mb-6 rounded-lg border bg-card p-3">
+          <PersistencePanel
+            currentState={appState}
+            onLoad={(state) => setAppState(state, { skipHistory: true })}
+            onCompare={() => setCompareOpen(true)}
+          />
+        </div>
 
         {/* Summary Cards */}
         <div className="mb-8 grid gap-4 md:grid-cols-4">
@@ -158,16 +183,39 @@ export default function OccupancyCalculator() {
               <CardTitle className="text-2xl">{calculations.totalSF.toLocaleString()} SF</CardTitle>
             </CardHeader>
           </Card>
-          <Card>
+          <Card className={calculations.remainingOccupantLoad !== undefined && calculations.remainingOccupantLoad < 0 ? "border-destructive" : ""}>
             <CardHeader className="pb-2">
-              <CardDescription>Max Occupancy</CardDescription>
-              <CardTitle className="text-2xl">{calculations.totalOccupancy} persons</CardTitle>
+              <CardDescription className="flex items-center gap-2">
+                Total Occupancy
+                {calculations.remainingOccupantLoad !== undefined && calculations.remainingOccupantLoad < 0 && (
+                  <AlertTriangle className="h-4 w-4 text-destructive" />
+                )}
+              </CardDescription>
+              <CardTitle className={`text-2xl ${calculations.remainingOccupantLoad !== undefined && calculations.remainingOccupantLoad < 0 ? "text-destructive" : ""}`}>
+                {calculations.totalOccupancy} persons
+              </CardTitle>
+              {maxOccupants !== undefined && (
+                <p className="text-xs text-muted-foreground">
+                  Cap: {maxOccupants} | Remaining:{" "}
+                  <span className={calculations.remainingOccupantLoad! < 0 ? "text-destructive font-semibold" : "text-foreground font-semibold"}>
+                    {calculations.remainingOccupantLoad}
+                  </span>
+                </p>
+              )}
             </CardHeader>
           </Card>
-          <Card>
+          <Card className={calculations.farOverLimit ? "border-destructive" : ""}>
             <CardHeader className="pb-2">
-              <CardDescription>Conditioned Space</CardDescription>
-              <CardTitle className="text-2xl text-primary">{calculations.conditionedSF.toLocaleString()} SF</CardTitle>
+              <CardDescription className="flex items-center gap-2">
+                Conditioned Space
+                {calculations.farOverLimit && <AlertTriangle className="h-4 w-4 text-destructive" />}
+              </CardDescription>
+              <CardTitle className={`text-2xl ${calculations.farOverLimit ? "text-destructive" : "text-primary"}`}>
+                {calculations.conditionedSF.toLocaleString()} SF
+              </CardTitle>
+              {farCap !== undefined && (
+                <p className="text-xs text-muted-foreground">FAR cap: {farCap.toLocaleString()} SF</p>
+              )}
             </CardHeader>
           </Card>
           <Card className={calculations.unconditionedOverLimit ? "border-destructive" : ""}>
@@ -176,9 +224,7 @@ export default function OccupancyCalculator() {
                 Unconditioned Space
                 {calculations.unconditionedOverLimit && <AlertTriangle className="h-4 w-4 text-destructive" />}
               </CardDescription>
-              <CardTitle
-                className={`text-2xl ${calculations.unconditionedOverLimit ? "text-destructive" : "text-muted-foreground"}`}
-              >
+              <CardTitle className={`text-2xl ${calculations.unconditionedOverLimit ? "text-destructive" : "text-muted-foreground"}`}>
                 {calculations.unconditionedSF.toLocaleString()} SF
               </CardTitle>
               <p className="text-xs text-muted-foreground">Limit: {unconditionedLimit.toLocaleString()} SF</p>
@@ -351,21 +397,63 @@ export default function OccupancyCalculator() {
             <CardTitle>Settings</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4">
-              <Label htmlFor="unconditioned-limit">Unconditioned Space Limit (SF):</Label>
-              <Input
-                id="unconditioned-limit"
-                type="number"
-                value={unconditionedLimit}
-                onChange={(e) => setUnconditionedLimit(Number(e.target.value))}
-                className="w-32"
-              />
-              {calculations.unconditionedOverLimit && (
-                <Badge variant="destructive" className="gap-1">
-                  <AlertTriangle className="h-3 w-3" />
-                  Over limit by {calculations.unconditionedSF - unconditionedLimit} SF
-                </Badge>
-              )}
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="flex items-center gap-3">
+                <Label htmlFor="unconditioned-limit">Unconditioned Limit (SF):</Label>
+                <Input
+                  id="unconditioned-limit"
+                  type="number"
+                  value={unconditionedLimit}
+                  onChange={(e) =>
+                    setAppState((prev) => ({ ...prev, unconditionedLimit: Number(e.target.value) }))
+                  }
+                  className="w-28"
+                />
+                {calculations.unconditionedOverLimit && (
+                  <Badge variant="destructive" className="gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Over by {calculations.unconditionedSF - unconditionedLimit} SF
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <Label htmlFor="max-occupants">Max Occupants:</Label>
+                <Input
+                  id="max-occupants"
+                  type="number"
+                  value={maxOccupants ?? ""}
+                  placeholder="—"
+                  onChange={(e) =>
+                    setAppState((prev) => ({
+                      ...prev,
+                      maxOccupants: e.target.value ? Number(e.target.value) : undefined,
+                    }))
+                  }
+                  className="w-24"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <Label htmlFor="far-cap">FAR Cap (SF):</Label>
+                <Input
+                  id="far-cap"
+                  type="number"
+                  value={farCap ?? ""}
+                  placeholder="—"
+                  onChange={(e) =>
+                    setAppState((prev) => ({
+                      ...prev,
+                      farCap: e.target.value ? Number(e.target.value) : undefined,
+                    }))
+                  }
+                  className="w-28"
+                />
+                {calculations.farOverLimit && (
+                  <Badge variant="destructive" className="gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Over by {calculations.conditionedSF - farCap!} SF
+                  </Badge>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -399,13 +487,9 @@ export default function OccupancyCalculator() {
                       <TableCell className="text-right font-semibold">{space.occupancy}</TableCell>
                       <TableCell>
                         {space.isConditioned ? (
-                          <Badge variant="default" className="text-xs">
-                            Yes
-                          </Badge>
+                          <Badge variant="default" className="text-xs">Yes</Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-xs">
-                            No
-                          </Badge>
+                          <Badge variant="secondary" className="text-xs">No</Badge>
                         )}
                       </TableCell>
                     </TableRow>
@@ -468,11 +552,36 @@ export default function OccupancyCalculator() {
           </Card>
         </div>
 
+        {/* WC / Lavatory Requirements */}
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle>Plumbing Requirements</CardTitle>
+            <CardDescription>IBC-derived water closet and lavatory counts for {calculations.totalOccupancy} occupants</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded border p-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Total WCs</p>
+                <p className="mt-1 text-3xl font-bold">{calculations.wc.total}</p>
+              </div>
+              <div className="rounded border p-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Accessible WCs</p>
+                <p className="mt-1 text-3xl font-bold">{calculations.wc.accessible}</p>
+                <p className="text-xs text-muted-foreground">{calculations.wc.nonAccessible} non-accessible</p>
+              </div>
+              <div className="rounded border p-3 text-center">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide">Lavatories</p>
+                <p className="mt-1 text-3xl font-bold">{calculations.lavatories}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* IBC Reference */}
         <Card className="mt-8">
           <CardHeader>
             <CardTitle>IBC Occupancy Load Reference</CardTitle>
-            <CardDescription>International Building Code Table 1004.5 - Maximum Floor Area Allowances Per Occupant</CardDescription>
+            <CardDescription>International Building Code Table 1004.5 – Maximum Floor Area Allowances Per Occupant</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
@@ -486,6 +595,8 @@ export default function OccupancyCalculator() {
           </CardContent>
         </Card>
       </div>
+
+      <VersionCompare open={compareOpen} onOpenChange={setCompareOpen} />
     </main>
   )
 }

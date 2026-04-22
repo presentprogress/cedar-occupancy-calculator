@@ -13,6 +13,7 @@ import { Trash2, Plus, AlertTriangle } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PersistencePanel } from "@/components/persistence-panel"
 import { VersionCompare } from "@/components/version-compare"
+import { SpacePlanner } from "@/components/space-planner"
 import { useUndoableState } from "@/hooks/use-undoable-state"
 import { useAutoSnapshot } from "@/hooks/use-auto-snapshot"
 import {
@@ -409,7 +410,7 @@ export default function OccupancyCalculator() {
               ))}
               <Separator />
               <div className="flex items-center justify-between text-sm">
-                <span>Total Equipment Area</span>
+                <span className="text-muted-foreground">Required SF (layout verification only)</span>
                 <span className="font-semibold">{calculations.totalEquipmentSpace} SF</span>
               </div>
             </CardContent>
@@ -599,6 +600,29 @@ export default function OccupancyCalculator() {
                 <p className="mt-1 text-3xl font-bold">{calculations.lavatories}</p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Space Planner */}
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle>Space Planner</CardTitle>
+            <CardDescription>
+              Equipment layout with clearance zones · drag to arrange · amenity zones sized proportionally
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SpacePlanner
+              equipment={equipment}
+              spaces={spaces}
+              storedPositions={appState.plannerLayout?.equipmentPositions}
+              onPositionsChange={(p) =>
+                setAppState((prev) => ({
+                  ...prev,
+                  plannerLayout: { equipmentPositions: p },
+                }), { skipHistory: true })
+              }
+            />
           </CardContent>
         </Card>
 

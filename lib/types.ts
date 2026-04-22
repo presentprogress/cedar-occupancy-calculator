@@ -44,6 +44,7 @@ export interface AppState {
   farCap?: number
   plannerLayout?: {
     equipmentPositions: Record<string, { x: number; y: number }>
+    spaceRects: Record<string, { x: number; y: number; w: number; h: number }>
   }
 }
 

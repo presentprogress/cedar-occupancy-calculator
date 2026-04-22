@@ -68,6 +68,8 @@ const EquipmentRawSchema = z
     accessSpace: z.coerce.number().min(0).optional(),
     access_space: z.coerce.number().min(0).optional(),
     area_with_clearance: z.coerce.number().min(0).optional(),
+    sharedClearance: z.coerce.number().min(0).optional(),
+    shared_clearance: z.coerce.number().min(0).optional(),
     quantity: z.coerce.number().min(1).default(1),
     qty: z.coerce.number().min(1).optional(),
   })
@@ -135,6 +137,7 @@ export function normalizeImportedJson(raw: unknown): NormalizeResult {
       name: e.name,
       footprint,
       accessSpace,
+      sharedClearance: e.sharedClearance ?? e.shared_clearance ?? 0,
       quantity: qty,
     }
   })

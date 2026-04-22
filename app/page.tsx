@@ -96,6 +96,7 @@ export default function OccupancyCalculator() {
       name: "New Equipment",
       footprint: 15,
       accessSpace: 30,
+      sharedClearance: 0,
       quantity: 1,
     }
     setAppState((prev) => ({ ...prev, equipment: [...prev.equipment, newItem] }))
@@ -120,14 +121,21 @@ export default function OccupancyCalculator() {
     }))
 
     // footprint = equipment dimension, accessSpace = clearance added on top
-    // Footprint per unit = footprint + accessSpace; total = footprint_per_unit × qty
-    const equipmentResults = equipment.map((item) => ({
-      ...item,
-      footprintPerUnit: item.footprint + item.accessSpace,
-      totalEquip: item.footprint * item.quantity,
-      totalClearance: item.accessSpace * item.quantity,
-      totalSpace: (item.footprint + item.accessSpace) * item.quantity,
-    }))
+    // sharedClearance = clearance saved per adjacent pair when units are grouped
+    const equipmentResults = equipment.map((item) => {
+      const shared = item.sharedClearance ?? 0
+      const footprintPerUnit = item.footprint + item.accessSpace
+      const sharedSavings = shared * Math.max(0, item.quantity - 1)
+      const totalSpace = footprintPerUnit * item.quantity - sharedSavings
+      return {
+        ...item,
+        footprintPerUnit,
+        totalEquip: item.footprint * item.quantity,
+        totalClearance: item.accessSpace * item.quantity,
+        sharedSavings,
+        totalSpace,
+      }
+    })
 
     const totalEquipmentSpace = equipmentResults.reduce((sum, e) => sum + e.totalSpace, 0)
     const equipmentOccupancy = Math.ceil(totalEquipmentSpace / IBC_LOAD_FACTORS["Exercise Room (Equipment)"])
@@ -342,7 +350,7 @@ export default function OccupancyCalculator() {
                       <Trash2 className="h-4 w-4 text-muted-foreground" />
                     </Button>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-4">
                     <div>
                       <Label className="text-xs text-muted-foreground">Equipment (SF)</Label>
                       <Input
@@ -362,6 +370,16 @@ export default function OccupancyCalculator() {
                       />
                     </div>
                     <div>
+                      <Label className="text-xs text-muted-foreground">Shared/pair (SF)</Label>
+                      <Input
+                        type="number"
+                        value={item.sharedClearance ?? 0}
+                        onChange={(e) => updateEquipment(item.id, { sharedClearance: Number(e.target.value) })}
+                        className="mt-1"
+                        min={0}
+                      />
+                    </div>
+                    <div>
                       <Label className="text-xs text-muted-foreground">Quantity</Label>
                       <Input
                         type="number"
@@ -372,10 +390,23 @@ export default function OccupancyCalculator() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3 text-right text-sm text-muted-foreground">
-                    Footprint: <span className="font-medium text-foreground">{item.footprint + item.accessSpace} SF</span>/unit
-                    {" · "}Total: <span className="font-medium text-foreground">{(item.footprint + item.accessSpace) * item.quantity} SF</span>
-                  </div>
+                  {(() => {
+                    const shared = item.sharedClearance ?? 0
+                    const fpUnit = item.footprint + item.accessSpace
+                    const savings = shared * Math.max(0, item.quantity - 1)
+                    const total = fpUnit * item.quantity - savings
+                    return (
+                      <div className="mt-3 text-right text-sm text-muted-foreground">
+                        Footprint: <span className="font-medium text-foreground">{fpUnit} SF</span>/unit
+                        {" · "}Total: <span className="font-medium text-foreground">{total} SF</span>
+                        {savings > 0 && (
+                          <span className="ml-1 text-green-600 dark:text-green-400">
+                            (−{savings} shared)
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               ))}
               <Separator />

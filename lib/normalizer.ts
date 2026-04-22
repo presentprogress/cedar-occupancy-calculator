@@ -93,7 +93,16 @@ export type NormalizeResult =
   | { success: false; errors: string[] }
 
 export function normalizeImportedJson(raw: unknown): NormalizeResult {
-  const parsed = AppStateRawSchema.safeParse(raw)
+  // Unwrap { name, state: { ... } } envelope produced by the save/export flow
+  const unwrapped =
+    raw !== null &&
+    typeof raw === "object" &&
+    "state" in (raw as object) &&
+    typeof (raw as Record<string, unknown>).state === "object"
+      ? (raw as Record<string, unknown>).state
+      : raw
+
+  const parsed = AppStateRawSchema.safeParse(unwrapped)
   if (!parsed.success) {
     return { success: false, errors: parsed.error.issues.map((i) => i.message) }
   }

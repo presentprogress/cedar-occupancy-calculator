@@ -138,13 +138,12 @@ export default function OccupancyCalculator() {
     })
 
     const totalEquipmentSpace = equipmentResults.reduce((sum, e) => sum + e.totalSpace, 0)
-    const equipmentOccupancy = Math.ceil(totalEquipmentSpace / IBC_LOAD_FACTORS["Exercise Room (Equipment)"])
 
     const conditionedSF = spaces.filter((s) => s.isConditioned).reduce((sum, s) => sum + s.squareFeet, 0)
     const unconditionedSF = spaces.filter((s) => !s.isConditioned).reduce((sum, s) => sum + s.squareFeet, 0)
-    const totalSF = conditionedSF + unconditionedSF + totalEquipmentSpace
+    const totalSF = conditionedSF + unconditionedSF
     const spaceOccupancy = spaceResults.reduce((sum, s) => sum + s.occupancy, 0)
-    const totalOccupancy = spaceOccupancy + equipmentOccupancy
+    const totalOccupancy = spaceOccupancy
 
     const wc = getWCRequirements(totalOccupancy)
     const lavatories = getLavatoryCount(totalOccupancy)
@@ -154,7 +153,6 @@ export default function OccupancyCalculator() {
       spaceResults,
       equipmentResults,
       totalEquipmentSpace,
-      equipmentOccupancy,
       conditionedSF,
       unconditionedSF,
       totalSF,
@@ -413,10 +411,6 @@ export default function OccupancyCalculator() {
               <div className="flex items-center justify-between text-sm">
                 <span>Total Equipment Area</span>
                 <span className="font-semibold">{calculations.totalEquipmentSpace} SF</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span>Equipment Occupancy (50 SF/person)</span>
-                <span className="font-semibold">{calculations.equipmentOccupancy} persons</span>
               </div>
             </CardContent>
           </Card>

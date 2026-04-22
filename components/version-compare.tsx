@@ -243,8 +243,8 @@ export function VersionCompare({ open, onOpenChange }: Props) {
                     const b = equipMap(stateB).get(name)
                     const isAdded = !a && !!b
                     const isRemoved = !!a && !b
-                    const sfA = a ? (a.footprint + a.accessSpace) * a.quantity : 0
-                    const sfB = b ? (b.footprint + b.accessSpace) * b.quantity : 0
+                    const sfA = a ? a.accessSpace * a.quantity : 0
+                    const sfB = b ? b.accessSpace * b.quantity : 0
                     return (
                       <TableRow
                         key={name}

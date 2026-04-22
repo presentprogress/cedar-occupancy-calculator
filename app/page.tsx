@@ -119,11 +119,12 @@ export default function OccupancyCalculator() {
       occupancy: Math.ceil(space.squareFeet / IBC_LOAD_FACTORS[space.type]),
     }))
 
+    // accessSpace stores the total area including clearance; footprint fits within it
     const equipmentResults = equipment.map((item) => ({
       ...item,
       totalFootprint: item.footprint * item.quantity,
-      totalAccessSpace: item.accessSpace * item.quantity,
-      totalSpace: (item.footprint + item.accessSpace) * item.quantity,
+      totalClearance: (item.accessSpace - item.footprint) * item.quantity,
+      totalSpace: item.accessSpace * item.quantity,
     }))
 
     const totalEquipmentSpace = equipmentResults.reduce((sum, e) => sum + e.totalSpace, 0)
@@ -350,7 +351,7 @@ export default function OccupancyCalculator() {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Access Space (SF)</Label>
+                      <Label className="text-xs text-muted-foreground">Total Area w/ Clearance (SF)</Label>
                       <Input
                         type="number"
                         value={item.accessSpace}
@@ -372,9 +373,10 @@ export default function OccupancyCalculator() {
                   <div className="mt-3 text-right text-sm text-muted-foreground">
                     Total:{" "}
                     <span className="font-medium text-foreground">
-                      {(item.footprint + item.accessSpace) * item.quantity} SF
+                      {item.accessSpace * item.quantity} SF
                     </span>{" "}
-                    ({item.footprint * item.quantity} + {item.accessSpace * item.quantity} access)
+                    ({item.footprint * item.quantity} equip +{" "}
+                    {(item.accessSpace - item.footprint) * item.quantity} clearance)
                   </div>
                 </div>
               ))}
@@ -522,7 +524,7 @@ export default function OccupancyCalculator() {
                     <TableHead>Equipment</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Footprint</TableHead>
-                    <TableHead className="text-right">Access</TableHead>
+                    <TableHead className="text-right">Clearance</TableHead>
                     <TableHead className="text-right">Total SF</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -532,7 +534,7 @@ export default function OccupancyCalculator() {
                       <TableCell className="font-medium">{item.name}</TableCell>
                       <TableCell className="text-right">{item.quantity}</TableCell>
                       <TableCell className="text-right">{item.totalFootprint}</TableCell>
-                      <TableCell className="text-right">{item.totalAccessSpace}</TableCell>
+                      <TableCell className="text-right">{item.totalClearance}</TableCell>
                       <TableCell className="text-right font-semibold">{item.totalSpace}</TableCell>
                     </TableRow>
                   ))}
@@ -542,7 +544,7 @@ export default function OccupancyCalculator() {
                       {calculations.equipmentResults.reduce((s, e) => s + e.totalFootprint, 0)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {calculations.equipmentResults.reduce((s, e) => s + e.totalAccessSpace, 0)}
+                      {calculations.equipmentResults.reduce((s, e) => s + e.totalClearance, 0)}
                     </TableCell>
                     <TableCell className="text-right">{calculations.totalEquipmentSpace}</TableCell>
                   </TableRow>

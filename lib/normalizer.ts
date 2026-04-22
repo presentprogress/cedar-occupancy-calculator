@@ -118,13 +118,12 @@ export function normalizeImportedJson(raw: unknown): NormalizeResult {
     // If equip_area + area_with_clearance provided, derive footprint + accessSpace
     const equipArea = e.footprint ?? e.equip_area
     const totalArea = e.area_with_clearance
+    // accessSpace stores total area incl. clearance; footprint fits within it
     let footprint = equipArea ?? 15
-    let accessSpace = e.accessSpace ?? e.access_space ?? 0
-    if (totalArea !== undefined && equipArea !== undefined) {
-      accessSpace = totalArea - equipArea
-    } else if (totalArea !== undefined && equipArea === undefined) {
-      footprint = totalArea
-      accessSpace = 0
+    let accessSpace = e.accessSpace ?? e.access_space ?? footprint
+    if (totalArea !== undefined) {
+      accessSpace = totalArea
+      if (equipArea !== undefined) footprint = equipArea
     }
     return {
       id: e.id && e.id !== "auto" ? e.id : crypto.randomUUID(),

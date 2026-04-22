@@ -7,22 +7,14 @@ interface SpaceResult extends SpaceArea {
   occupancy: number
 }
 
-interface WCResult {
-  total: number
-  accessible: number
-  nonAccessible: number
-}
-
 interface FlowChainProps {
   spaceResults: SpaceResult[]
   totalOccupancy: number
-  wc: WCResult
-  lavatories: number
 }
 
-export function FlowChain({ spaceResults, totalOccupancy, wc, lavatories }: FlowChainProps) {
+export function FlowChain({ spaceResults, totalOccupancy }: FlowChainProps) {
   return (
-    <section className="grid grid-cols-[1fr,264px] gap-4 items-start">
+    <section>
 
       {/* ── Derivation table ── */}
       <div className="overflow-hidden rounded-xl border border-border/60">
@@ -69,41 +61,6 @@ export function FlowChain({ spaceResults, totalOccupancy, wc, lavatories }: Flow
             <span className="text-right font-black text-xl tabular-nums text-amber-400">
               {totalOccupancy}
             </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Plumbing panel ── */}
-      <div className="overflow-hidden rounded-xl border border-border/60">
-        <div className="border-b border-border/60 px-4 py-3">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Plumbing Required
-          </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
-            for {totalOccupancy} occupants
-          </p>
-        </div>
-
-        <div className="p-4 space-y-3">
-          <div className="flex items-center justify-between py-1">
-            <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Total WCs</span>
-            <span className="font-black tabular-nums text-4xl">{wc.total}</span>
-          </div>
-
-          <div className="space-y-2 border-t border-border/40 pt-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Accessible</span>
-              <span className="font-semibold tabular-nums">{wc.accessible}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Non-accessible</span>
-              <span className="font-semibold tabular-nums">{wc.nonAccessible}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-t border-border/40 pt-3">
-            <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Lavatories</span>
-            <span className="font-black tabular-nums text-4xl">{lavatories}</span>
           </div>
         </div>
       </div>

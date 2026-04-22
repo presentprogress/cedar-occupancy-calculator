@@ -262,6 +262,22 @@ export default function OccupancyCalculator() {
           </div>
         </section>
 
+        {/* ── Plumbing Requirements (horizontal) ── */}
+        <section className="grid grid-cols-4 gap-3">
+          {[
+            { label: "Total WCs", value: calc.wc.total, sub: "IBC Table 2902.1" },
+            { label: "Accessible", value: calc.wc.accessible, sub: "of total WCs" },
+            { label: "Non-Accessible", value: calc.wc.nonAccessible, sub: "standard stalls" },
+            { label: "Lavatories", value: calc.lavatories, sub: `for ${calc.totalOccupancy} occ` },
+          ].map(({ label, value, sub }) => (
+            <div key={label} className="overflow-hidden rounded-xl border border-border/60 bg-card px-4 py-3 flex flex-col gap-1">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+              <p className="font-black tabular-nums text-4xl leading-none">{value}</p>
+              <p className="font-mono text-[10px] text-muted-foreground">{sub}</p>
+            </div>
+          ))}
+        </section>
+
         {/* ── Hero ── */}
         <HeroMetrics
           totalOccupancy={calc.totalOccupancy}
@@ -313,8 +329,6 @@ export default function OccupancyCalculator() {
         <FlowChain
           spaceResults={calc.spaceResults}
           totalOccupancy={calc.totalOccupancy}
-          wc={calc.wc}
-          lavatories={calc.lavatories}
         />
 
         {/* ── Editors ── */}

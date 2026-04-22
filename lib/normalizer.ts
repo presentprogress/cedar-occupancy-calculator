@@ -68,6 +68,8 @@ const EquipmentRawSchema = z
     accessSpace: z.coerce.number().min(0).optional(),
     access_space: z.coerce.number().min(0).optional(),
     area_with_clearance: z.coerce.number().min(0).optional(),
+    sharedClearance: z.coerce.number().min(0).optional(),
+    shared_clearance: z.coerce.number().min(0).optional(),
     quantity: z.coerce.number().min(1).default(1),
     qty: z.coerce.number().min(1).optional(),
   })
@@ -118,9 +120,13 @@ export function normalizeImportedJson(raw: unknown): NormalizeResult {
     // If equip_area + area_with_clearance provided, derive footprint + accessSpace
     const equipArea = e.footprint ?? e.equip_area
     const totalArea = e.area_with_clearance
+    // footprint = equipment dimension, accessSpace = clearance added on top
+    // total per unit = footprint + accessSpace
     let footprint = equipArea ?? 15
     let accessSpace = e.accessSpace ?? e.access_space ?? 0
     if (totalArea !== undefined && equipArea !== undefined) {
+      // spreadsheet gives total and equip separately; derive clearance
+      footprint = equipArea
       accessSpace = totalArea - equipArea
     } else if (totalArea !== undefined && equipArea === undefined) {
       footprint = totalArea
@@ -131,6 +137,7 @@ export function normalizeImportedJson(raw: unknown): NormalizeResult {
       name: e.name,
       footprint,
       accessSpace,
+      sharedClearance: e.sharedClearance ?? e.shared_clearance ?? 0,
       quantity: qty,
     }
   })

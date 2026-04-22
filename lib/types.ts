@@ -32,6 +32,7 @@ export interface EquipmentItem {
   name: string
   footprint: number
   accessSpace: number
+  sharedClearance?: number  // clearance saved per adjacent pair when qty > 1; default 0
   quantity: number
 }
 

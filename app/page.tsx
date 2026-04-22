@@ -96,6 +96,7 @@ export default function OccupancyCalculator() {
       name: "New Equipment",
       footprint: 15,
       accessSpace: 30,
+      sharedClearance: 0,
       quantity: 1,
     }
     setAppState((prev) => ({ ...prev, equipment: [...prev.equipment, newItem] }))
@@ -119,12 +120,22 @@ export default function OccupancyCalculator() {
       occupancy: Math.ceil(space.squareFeet / IBC_LOAD_FACTORS[space.type]),
     }))
 
-    const equipmentResults = equipment.map((item) => ({
-      ...item,
-      totalFootprint: item.footprint * item.quantity,
-      totalAccessSpace: item.accessSpace * item.quantity,
-      totalSpace: (item.footprint + item.accessSpace) * item.quantity,
-    }))
+    // footprint = equipment dimension, accessSpace = clearance added on top
+    // sharedClearance = clearance saved per adjacent pair when units are grouped
+    const equipmentResults = equipment.map((item) => {
+      const shared = item.sharedClearance ?? 0
+      const footprintPerUnit = item.footprint + item.accessSpace
+      const sharedSavings = shared * Math.max(0, item.quantity - 1)
+      const totalSpace = footprintPerUnit * item.quantity - sharedSavings
+      return {
+        ...item,
+        footprintPerUnit,
+        totalEquip: item.footprint * item.quantity,
+        totalClearance: item.accessSpace * item.quantity,
+        sharedSavings,
+        totalSpace,
+      }
+    })
 
     const totalEquipmentSpace = equipmentResults.reduce((sum, e) => sum + e.totalSpace, 0)
     const equipmentOccupancy = Math.ceil(totalEquipmentSpace / IBC_LOAD_FACTORS["Exercise Room (Equipment)"])
@@ -339,9 +350,9 @@ export default function OccupancyCalculator() {
                       <Trash2 className="h-4 w-4 text-muted-foreground" />
                     </Button>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-4">
                     <div>
-                      <Label className="text-xs text-muted-foreground">Footprint (SF)</Label>
+                      <Label className="text-xs text-muted-foreground">Equipment (SF)</Label>
                       <Input
                         type="number"
                         value={item.footprint}
@@ -350,12 +361,22 @@ export default function OccupancyCalculator() {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">Access Space (SF)</Label>
+                      <Label className="text-xs text-muted-foreground">Access (SF)</Label>
                       <Input
                         type="number"
                         value={item.accessSpace}
                         onChange={(e) => updateEquipment(item.id, { accessSpace: Number(e.target.value) })}
                         className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Shared/pair (SF)</Label>
+                      <Input
+                        type="number"
+                        value={item.sharedClearance ?? 0}
+                        onChange={(e) => updateEquipment(item.id, { sharedClearance: Number(e.target.value) })}
+                        className="mt-1"
+                        min={0}
                       />
                     </div>
                     <div>
@@ -369,13 +390,23 @@ export default function OccupancyCalculator() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3 text-right text-sm text-muted-foreground">
-                    Total:{" "}
-                    <span className="font-medium text-foreground">
-                      {(item.footprint + item.accessSpace) * item.quantity} SF
-                    </span>{" "}
-                    ({item.footprint * item.quantity} + {item.accessSpace * item.quantity} access)
-                  </div>
+                  {(() => {
+                    const shared = item.sharedClearance ?? 0
+                    const fpUnit = item.footprint + item.accessSpace
+                    const savings = shared * Math.max(0, item.quantity - 1)
+                    const total = fpUnit * item.quantity - savings
+                    return (
+                      <div className="mt-3 text-right text-sm text-muted-foreground">
+                        Footprint: <span className="font-medium text-foreground">{fpUnit} SF</span>/unit
+                        {" · "}Total: <span className="font-medium text-foreground">{total} SF</span>
+                        {savings > 0 && (
+                          <span className="ml-1 text-green-600 dark:text-green-400">
+                            (−{savings} shared)
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               ))}
               <Separator />
@@ -521,9 +552,9 @@ export default function OccupancyCalculator() {
                   <TableRow>
                     <TableHead>Equipment</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Footprint</TableHead>
+                    <TableHead className="text-right">Equipment</TableHead>
                     <TableHead className="text-right">Access</TableHead>
-                    <TableHead className="text-right">Total SF</TableHead>
+                    <TableHead className="text-right">Footprint (total)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -531,18 +562,18 @@ export default function OccupancyCalculator() {
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">{item.name}</TableCell>
                       <TableCell className="text-right">{item.quantity}</TableCell>
-                      <TableCell className="text-right">{item.totalFootprint}</TableCell>
-                      <TableCell className="text-right">{item.totalAccessSpace}</TableCell>
+                      <TableCell className="text-right">{item.totalEquip}</TableCell>
+                      <TableCell className="text-right">{item.totalClearance}</TableCell>
                       <TableCell className="text-right font-semibold">{item.totalSpace}</TableCell>
                     </TableRow>
                   ))}
                   <TableRow className="bg-muted/50 font-semibold">
                     <TableCell colSpan={2}>Subtotal (Equipment)</TableCell>
                     <TableCell className="text-right">
-                      {calculations.equipmentResults.reduce((s, e) => s + e.totalFootprint, 0)}
+                      {calculations.equipmentResults.reduce((s, e) => s + e.totalEquip, 0)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {calculations.equipmentResults.reduce((s, e) => s + e.totalAccessSpace, 0)}
+                      {calculations.equipmentResults.reduce((s, e) => s + e.totalClearance, 0)}
                     </TableCell>
                     <TableCell className="text-right">{calculations.totalEquipmentSpace}</TableCell>
                   </TableRow>

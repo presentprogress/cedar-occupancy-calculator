@@ -3,7 +3,7 @@
 import { useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { RotateCcw } from "lucide-react"
-import { IBC_LOAD_FACTORS } from "@/lib/types"
+import { IBC_LOAD_FACTORS, rectsOverlap } from "@/lib/types"
 import type { EquipmentItem, SpaceArea, SpaceLayout } from "@/lib/types"
 
 // ─── Scale & constants ────────────────────────────────────────────────────────
@@ -68,9 +68,6 @@ function isWater(t: string) {
 }
 function isGym(t: string) {
   return t === "Exercise Room (Equipment)" || t === "Exercise Room (Concentrated)"
-}
-function rectsOverlap(a: SpaceLayout, b: SpaceLayout) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
 function getDims(item: EquipmentItem) {
   const fw = Math.sqrt(item.footprint)
@@ -139,7 +136,8 @@ function mergeEquipDefaults(
 // ─── Drag state ───────────────────────────────────────────────────────────────
 type RoomHandle = "left" | "right" | "top" | "bottom" | "move"
 type Drag =
-  | { kind: "room"; id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "room";      id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "enclosure"; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
   | { kind: "equip-zone"; key: IKey; startFt: EPos; startPos: EPos }
   | { kind: "equip-fp";  key: IKey; startFt: EPos; startOff: EPos; border: number }
 
@@ -148,17 +146,19 @@ interface SpacePlannerProps {
   spaces: SpaceArea[]
   equipment: EquipmentItem[]
   spaceLayouts: Record<string, SpaceLayout>
+  enclosure?: SpaceLayout
   storedEquipPositions?: Positions
   isDark: boolean
   onSpaceResize: (id: string, layout: SpaceLayout) => void
+  onEnclosureChange: (e: SpaceLayout) => void
   onEquipPositionsChange: (p: Positions) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export function SpacePlanner({
-  spaces, equipment, spaceLayouts,
+  spaces, equipment, spaceLayouts, enclosure,
   storedEquipPositions, isDark,
-  onSpaceResize, onEquipPositionsChange,
+  onSpaceResize, onEnclosureChange, onEquipPositionsChange,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -171,6 +171,7 @@ export function SpacePlanner({
   )
   // Footprint offsets within clearance zone: { dx, dy } from clearance top-left; default = border
   const [fpOffsets, setFpOffsets] = useState<Record<IKey, EPos>>({})
+  const [localEnclosure, setLocalEnclosure] = useState(enclosure)
 
   // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
@@ -182,6 +183,11 @@ export function SpacePlanner({
   if (storedEquipPositions !== prevEquip.current) {
     prevEquip.current = storedEquipPositions
     setEquipPos(mergeEquipDefaults(equipment, spaces, spaceLayouts, storedEquipPositions))
+  }
+  const prevEncl = useRef(enclosure)
+  if (enclosure !== prevEncl.current) {
+    prevEncl.current = enclosure
+    setLocalEnclosure(enclosure)
   }
 
   // Colour helpers
@@ -254,6 +260,13 @@ export function SpacePlanner({
     setDrag({ kind: "room", id, handle, startFt: toFt(e), startLayout: { ...localLayouts[id] } })
   }
 
+  function startEnclosureDrag(e: React.PointerEvent<SVGElement>, handle: RoomHandle) {
+    if (!localEnclosure) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ kind: "enclosure", handle, startFt: toFt(e), startLayout: { ...localEnclosure } })
+  }
+
   function startEquipZoneDrag(e: React.PointerEvent<SVGElement>, key: IKey) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -284,6 +297,17 @@ export function SpacePlanner({
         default:       nl = { x: Math.max(0, x + dx), y: Math.max(0, y + dy), w, h }
       }
       setLocalLayouts(prev => ({ ...prev, [drag.id]: nl }))
+    } else if (drag.kind === "enclosure") {
+      const { x, y, w, h } = drag.startLayout
+      let nl: SpaceLayout
+      switch (drag.handle) {
+        case "left":   nl = { x: Math.max(0, x + dx), y, w: Math.max(MIN_ROOM, w - dx), h }; break
+        case "right":  nl = { x, y, w: Math.max(MIN_ROOM, w + dx), h }; break
+        case "top":    nl = { x, y: Math.max(0, y + dy), w, h: Math.max(MIN_ROOM, h - dy) }; break
+        case "bottom": nl = { x, y, w, h: Math.max(MIN_ROOM, h + dy) }; break
+        default:       nl = { x: Math.max(0, x + dx), y: Math.max(0, y + dy), w, h }
+      }
+      setLocalEnclosure(nl)
     } else if (drag.kind === "equip-zone") {
       setEquipPos(prev => ({
         ...prev,
@@ -308,6 +332,8 @@ export function SpacePlanner({
     if (!drag) return
     if (drag.kind === "room") {
       onSpaceResize(drag.id, localLayouts[drag.id])
+    } else if (drag.kind === "enclosure") {
+      if (localEnclosure) onEnclosureChange(localEnclosure)
     } else if (drag.kind === "equip-zone") {
       onEquipPositionsChange(equipPos)
     }
@@ -360,6 +386,42 @@ export function SpacePlanner({
         <rect width={svgW} height={svgH} fill={bgColor} />
         <rect width={svgW} height={svgH} fill="url(#g10)" />
 
+        {/* ── Enclosure background fill ── */}
+        {localEnclosure && (
+          <rect
+            x={px(localEnclosure.x)} y={px(localEnclosure.y)}
+            width={px(localEnclosure.w)} height={px(localEnclosure.h)}
+            fill={isDark ? "#0f1623" : "#f0f4f8"} fillOpacity={0.55}
+            stroke="none" rx={4} pointerEvents="none"
+          />
+        )}
+
+        {/* ── Pool deck rings — always visible, rendered below rooms ── */}
+        {spaces.map(space => {
+          if (!isWater(space.type)) return null
+          const layout = localLayouts[space.id]
+          if (!layout) return null
+          const cx2 = px(layout.x + layout.w / 2)
+          const ry2 = px(layout.y - SETBACK)
+          return (
+            <g key={`deck-${space.id}`} pointerEvents="none">
+              <rect
+                x={px(layout.x - SETBACK)} y={ry2}
+                width={px(layout.w + SETBACK * 2)} height={px(layout.h + SETBACK * 2)}
+                fill={isDark ? "#271800" : "#fef3c7"} fillOpacity={isDark ? 0.9 : 0.88}
+                stroke={isDark ? "#d97706" : "#d97706"} strokeWidth={1.5}
+                rx={4}
+              />
+              <text x={cx2} y={ry2 - 3}
+                textAnchor="middle" fontSize={7.5}
+                fill={isDark ? "#fbbf24" : "#92400e"}
+                fontFamily="'Geist Mono',monospace">
+                3&apos; min deck
+              </text>
+            </g>
+          )
+        })}
+
         {/* ── ROOMS ── */}
         {spaces.map(space => {
           const layout = localLayouts[space.id]
@@ -378,29 +440,6 @@ export function SpacePlanner({
 
           return (
             <g key={space.id}>
-              {/* Pool/spa setback ring when selected */}
-              {isWaterSpace && isSel && (
-                <>
-                  <rect
-                    x={rx - px(SETBACK)} y={ry - px(SETBACK)}
-                    width={rw + px(SETBACK) * 2} height={rh + px(SETBACK) * 2}
-                    fill="none"
-                    stroke={isDark ? "#fbbf24" : "#d97706"}
-                    strokeWidth={1} strokeDasharray="5 4"
-                    rx={4} pointerEvents="none"
-                  />
-                  <text
-                    x={cx2} y={ry - px(SETBACK) - 4}
-                    textAnchor="middle" fontSize={8}
-                    fill={isDark ? "#fbbf24" : "#d97706"}
-                    fontFamily="'Geist Mono',monospace"
-                    pointerEvents="none"
-                  >
-                    3&apos; min deck
-                  </text>
-                </>
-              )}
-
               {/* Room body */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
@@ -550,6 +589,53 @@ export function SpacePlanner({
             </g>
           )
         })}
+
+        {/* ── Enclosure boundary (on top so handles are reachable) ── */}
+        {localEnclosure && (() => {
+          const { x, y, w, h } = localEnclosure
+          const ex = px(x), ey = px(y), ew = px(w), eh = px(h)
+          const ecx = ex + ew / 2
+          const ecy = ey + eh / 2
+          const encStroke = isDark ? "#94a3b8" : "#475569"
+          const hFill = isDark ? "#1e293b" : "#fff"
+          return (
+            <g key="enclosure">
+              <rect
+                x={ex} y={ey} width={ew} height={eh}
+                fill="none"
+                stroke={encStroke} strokeWidth={2.5} strokeDasharray="10 6"
+                rx={4}
+                style={{ cursor: "grab" }}
+                onPointerDown={e => startEnclosureDrag(e, "move")}
+              />
+              <text x={ecx} y={ey + 14}
+                textAnchor="middle" fontSize={9}
+                fill={encStroke} fontFamily="'Geist Mono',monospace" fontWeight="600"
+                pointerEvents="none" letterSpacing={1}>
+                FACILITY BOUNDARY
+              </text>
+              {(["left","right","top","bottom"] as RoomHandle[]).map(side => {
+                const hx = side === "left" ? ex - 4
+                  : side === "right" ? ex + ew - 4
+                  : ecx - 13
+                const hy = side === "top" ? ey - 4
+                  : side === "bottom" ? ey + eh - 4
+                : ecy - 13
+                const hw = (side === "top" || side === "bottom") ? 26 : 8
+                const hh = (side === "left" || side === "right") ? 26 : 8
+                const cur = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                return (
+                  <rect key={side}
+                    x={hx} y={hy} width={hw} height={hh}
+                    fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
+                    style={{ cursor: cur }}
+                    onPointerDown={e => startEnclosureDrag(e, side)}
+                  />
+                )
+              })}
+            </g>
+          )
+        })()}
 
         {/* Scale bar */}
         <g transform={`translate(12, ${svgH - 22})`} pointerEvents="none">

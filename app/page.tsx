@@ -18,6 +18,7 @@ import { useUndoableState } from "@/hooks/use-undoable-state"
 import { useAutoSnapshot } from "@/hooks/use-auto-snapshot"
 import {
   IBC_LOAD_FACTORS,
+  rectsOverlap,
   type SpaceType,
   type SpaceArea,
   type EquipmentItem,
@@ -62,6 +63,7 @@ const initialState: AppState = {
   maxOccupants: undefined,
   farCap: undefined,
   spaceLayouts: defaultLayouts,
+  enclosure: { x: 1, y: 1, w: 54, h: 115 },
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -102,7 +104,7 @@ export default function OccupancyCalculator() {
     return () => window.removeEventListener("keydown", h)
   }, [undo])
 
-  const { spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts } = appState
+  const { spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts, enclosure } = appState
 
   // ── Space mutations ──────────────────────────────────────────────────────────
   const addSpace = () => {
@@ -133,6 +135,9 @@ export default function OccupancyCalculator() {
         spaceLayouts: restLayouts,
       }
     })
+
+  const handleEnclosureChange = (e: SpaceLayout) =>
+    setAppState((prev) => ({ ...prev, enclosure: e }), { skipHistory: false })
 
   // Canvas resize → updates both layout and squareFeet
   const handleSpaceResize = (id: string, layout: SpaceLayout) =>
@@ -165,11 +170,16 @@ export default function OccupancyCalculator() {
 
   // ── Calculations ─────────────────────────────────────────────────────────────
   const calc = useMemo(() => {
-    const spaceResults = spaces.map((s) => ({
-      ...s,
-      loadFactor: IBC_LOAD_FACTORS[s.type],
-      occupancy: Math.ceil(s.squareFeet / IBC_LOAD_FACTORS[s.type]),
-    }))
+    const spaceResults = spaces.map((s) => {
+      const layout = spaceLayouts[s.id]
+      const inBounds = !enclosure || !layout || rectsOverlap(layout, enclosure)
+      return {
+        ...s,
+        loadFactor: IBC_LOAD_FACTORS[s.type],
+        occupancy: inBounds ? Math.ceil(s.squareFeet / IBC_LOAD_FACTORS[s.type]) : 0,
+        outsideEnclosure: !inBounds,
+      }
+    })
 
     const equipmentResults = equipment.map((item) => {
       const shared = item.sharedClearance ?? 0
@@ -193,7 +203,7 @@ export default function OccupancyCalculator() {
       wc: getWCRequirements(totalOccupancy),
       lavatories: getLavatoryCount(totalOccupancy),
     }
-  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap])
+  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts, enclosure])
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -313,9 +323,11 @@ export default function OccupancyCalculator() {
             spaces={spaces}
             equipment={equipment}
             spaceLayouts={spaceLayouts}
+            enclosure={enclosure}
             storedEquipPositions={appState.plannerLayout?.equipmentPositions}
             isDark={isDark}
             onSpaceResize={handleSpaceResize}
+            onEnclosureChange={handleEnclosureChange}
             onEquipPositionsChange={(positions) =>
               setAppState((prev) => ({
                 ...prev,

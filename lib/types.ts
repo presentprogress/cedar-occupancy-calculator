@@ -52,9 +52,16 @@ export interface AppState {
   farCap?: number
   /** Canvas layouts keyed by SpaceArea.id — SF = w × h */
   spaceLayouts: Record<string, SpaceLayout>
+  /** Facility boundary — spaces outside do not count toward occupancy */
+  enclosure?: SpaceLayout
   plannerLayout?: {
     equipmentPositions: Record<string, { x: number; y: number }>
   }
+}
+
+export function rectsOverlap(a: SpaceLayout, b: SpaceLayout): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y
 }
 
 export const WC_THRESHOLDS: Array<{ max: number; total: number; accessible: number }> = [

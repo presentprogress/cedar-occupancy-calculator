@@ -4,7 +4,7 @@ export const IBC_LOAD_FACTORS = {
   "Exercise Room (Equipment)": 50,
   "Exercise Room (Concentrated)": 15,
   "Locker Room": 50,
-  "Sauna/Steam Room": 15,
+  "Sauna/Steam Room": 50,
   "Spa/Hot Tub (Water Surface)": 50,
   "Cold Plunge (Water Surface)": 50,
   "Lobby/Reception": 15,

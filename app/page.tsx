@@ -409,7 +409,7 @@ export default function OccupancyCalculator() {
               ))}
               <Separator />
               <div className="flex items-center justify-between text-sm">
-                <span>Total Equipment Area</span>
+                <span className="text-muted-foreground">Required SF (layout verification only)</span>
                 <span className="font-semibold">{calculations.totalEquipmentSpace} SF</span>
               </div>
             </CardContent>

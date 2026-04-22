@@ -42,6 +42,9 @@ export interface AppState {
   unconditionedLimit: number
   maxOccupants?: number
   farCap?: number
+  plannerLayout?: {
+    equipmentPositions: Record<string, { x: number; y: number }>
+  }
 }
 
 export const WC_THRESHOLDS: Array<{ max: number; total: number; accessible: number }> = [

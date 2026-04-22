@@ -230,16 +230,12 @@ export default function OccupancyCalculator() {
               )}
             </CardHeader>
           </Card>
-          <Card className={calculations.unconditionedOverLimit ? "border-destructive" : ""}>
+          <Card>
             <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-2">
-                Unconditioned Space
-                {calculations.unconditionedOverLimit && <AlertTriangle className="h-4 w-4 text-destructive" />}
-              </CardDescription>
-              <CardTitle className={`text-2xl ${calculations.unconditionedOverLimit ? "text-destructive" : "text-muted-foreground"}`}>
+              <CardDescription>Unconditioned Space</CardDescription>
+              <CardTitle className="text-2xl text-muted-foreground">
                 {calculations.unconditionedSF.toLocaleString()} SF
               </CardTitle>
-              <p className="text-xs text-muted-foreground">Limit: {unconditionedLimit.toLocaleString()} SF</p>
             </CardHeader>
           </Card>
         </div>
@@ -311,6 +307,23 @@ export default function OccupancyCalculator() {
                           <Badge variant="secondary">Unconditioned</Badge>
                         )}
                       </Label>
+                      {farCap !== undefined && space.isConditioned && (() => {
+                        const remaining = Math.max(0,
+                          farCap - spaces
+                            .filter(s => s.id !== space.id && s.isConditioned)
+                            .reduce((sum, s) => sum + s.squareFeet, 0)
+                        )
+                        return (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => updateSpace(space.id, { squareFeet: remaining })}
+                          >
+                            → {remaining.toLocaleString()} SF (FAR cap)
+                          </Button>
+                        )
+                      })()}
                     </div>
                     <div className="text-right text-sm text-muted-foreground">
                       Load: {IBC_LOAD_FACTORS[space.type]} SF/person |{" "}
@@ -426,24 +439,6 @@ export default function OccupancyCalculator() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap items-center gap-6">
-              <div className="flex items-center gap-3">
-                <Label htmlFor="unconditioned-limit">Unconditioned Limit (SF):</Label>
-                <Input
-                  id="unconditioned-limit"
-                  type="number"
-                  value={unconditionedLimit}
-                  onChange={(e) =>
-                    setAppState((prev) => ({ ...prev, unconditionedLimit: Number(e.target.value) }))
-                  }
-                  className="w-28"
-                />
-                {calculations.unconditionedOverLimit && (
-                  <Badge variant="destructive" className="gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    Over by {calculations.unconditionedSF - unconditionedLimit} SF
-                  </Badge>
-                )}
-              </div>
               <div className="flex items-center gap-3">
                 <Label htmlFor="max-occupants">Max Occupants:</Label>
                 <Input
@@ -610,18 +605,25 @@ export default function OccupancyCalculator() {
           <CardHeader>
             <CardTitle>Space Planner</CardTitle>
             <CardDescription>
-              Equipment layout with clearance zones · drag to arrange · amenity zones sized proportionally
+              Equipment layout with clearance zones · amenity zones with drag and resize · pool deck stays ≥3 ft from water
             </CardDescription>
           </CardHeader>
           <CardContent>
             <SpacePlanner
               equipment={equipment}
               spaces={spaces}
-              storedPositions={appState.plannerLayout?.equipmentPositions}
-              onPositionsChange={(p) =>
+              storedEquipPositions={appState.plannerLayout?.equipmentPositions}
+              storedSpaceRects={appState.plannerLayout?.spaceRects}
+              onEquipPositionsChange={(p) =>
                 setAppState((prev) => ({
                   ...prev,
-                  plannerLayout: { equipmentPositions: p },
+                  plannerLayout: { ...prev.plannerLayout, equipmentPositions: p, spaceRects: prev.plannerLayout?.spaceRects ?? {} },
+                }), { skipHistory: true })
+              }
+              onSpaceRectsChange={(r) =>
+                setAppState((prev) => ({
+                  ...prev,
+                  plannerLayout: { ...prev.plannerLayout, equipmentPositions: prev.plannerLayout?.equipmentPositions ?? {}, spaceRects: r },
                 }), { skipHistory: true })
               }
             />

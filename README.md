@@ -1,1 +1,0 @@
-# cedar-occupancy-calculator

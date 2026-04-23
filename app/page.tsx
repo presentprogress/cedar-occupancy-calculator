@@ -293,6 +293,20 @@ export default function OccupancyCalculator() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const payload = { appState, calc: { ...calc, spaceResults: calc.spaceResults } }
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement("a"); a.href = url
+                a.download = `cedar-debug-${new Date().toISOString().slice(0,19).replace(/:/g,"-")}.json`
+                a.click(); URL.revokeObjectURL(url)
+              }}
+              className="rounded-md border border-border/60 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted/40"
+              title="Export debug JSON"
+            >
+              JSON
+            </button>
             <ThemeToggle />
             <PersistencePanel
               currentState={appState}

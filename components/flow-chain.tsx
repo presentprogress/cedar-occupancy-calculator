@@ -67,6 +67,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
   const waterGroups = groupWaterSpaces(spaceResults, spaceLayouts)
   const waterIds = new Set(spaceResults.filter(s => isWater(s.type)).map(s => s.id))
   const nonWater = spaceResults.filter(s => !isWater(s.type))
+  const hasManualPoolDeck = spaceResults.some(s => s.type === "Pool Deck")
 
   // Build rows
   type Row =
@@ -83,8 +84,8 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
     const occ = group.some(s => s.excludeFromOccupancy) ? 0 : Math.ceil(area / WATER_FACTOR)
     rows.push({ kind: "water-group", group, sf: area, occ })
 
-    // Auto pool deck (min.) — union of expanded rects minus water union (no double-count)
-    if (ls.length) {
+    // Auto pool deck (min.) — skipped when user has a manual Pool Deck space
+    if (ls.length && !hasManualPoolDeck) {
       const expanded = ls.map(l => ({ x: l.x - SETBACK, y: l.y - SETBACK, w: l.w + 2*SETBACK, h: l.h + 2*SETBACK }))
       const deckSF = Math.max(0, Math.round(unionInfo(expanded).area - area))
       const deckOcc = Math.ceil(deckSF / DECK_FACTOR)

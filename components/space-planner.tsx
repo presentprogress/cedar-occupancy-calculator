@@ -446,7 +446,10 @@ export function SpacePlanner({
             const mx = px(bx0 - SETBACK - 0.5), my = px(by0 - SETBACK - 0.5)
             const mw = px(bx1 - bx0 + (SETBACK + 0.5) * 2)
             const mh = px(by1 - by0 + (SETBACK + 0.5) * 2)
-            const labelX = px((bx0 + bx1) / 2), labelY = px(by0 - SETBACK) - 3
+            // Ring bounding box in canvas px (used for label placement)
+            const rlx = px(bx0 - SETBACK), rly = px(by0 - SETBACK)
+            const rlw = px(bx1 - bx0 + SETBACK * 2), rlh = px(by1 - by0 + SETBACK * 2)
+            const labelX = rlx + rlw / 2
             const maskId = `dm-${gi}`
 
             const filterId = `df${gi}`
@@ -486,13 +489,27 @@ export function SpacePlanner({
                   mask={`url(#${maskId})`}
                   filter={`url(#${filterId})`} />
 
-                <text textAnchor="middle" fontSize={7.5}
-                  fill={isDark ? "#fbbf24" : "#92400e"}
-                  fontFamily="'Geist Mono',monospace">
-                  <tspan x={labelX} dy={0} y={labelY}>Pool Deck (Auto) · {deckSF.toLocaleString()} SF</tspan>
-                  <tspan x={labelX} dy={10} fontWeight="bold" fontSize={9}>{deckOcc}</tspan>
-                  <tspan fontSize={7} opacity={0.7}> occ</tspan>
-                </text>
+                <g pointerEvents="none" fontFamily="'Geist Mono',monospace"
+                  fill={isDark ? "#fbbf24" : "#92400e"}>
+                  {/* SF at top — matches room name/SF position */}
+                  <text x={labelX} y={rly + 12}
+                    textAnchor="middle" fontSize={7.5}>
+                    Pool Deck (Auto)
+                  </text>
+                  <text x={labelX} y={rly + 22}
+                    textAnchor="middle" fontSize={7.5} opacity={0.7}>
+                    {deckSF.toLocaleString()} SF
+                  </text>
+                  {/* Occ at bottom — matches room occ position */}
+                  <text x={labelX} y={rly + rlh - 14}
+                    textAnchor="middle" fontSize={16} fontWeight="800">
+                    {deckOcc}
+                  </text>
+                  <text x={labelX} y={rly + rlh - 4}
+                    textAnchor="middle" fontSize={6.5} opacity={0.5}>
+                    OCC
+                  </text>
+                </g>
               </g>
             )
           })

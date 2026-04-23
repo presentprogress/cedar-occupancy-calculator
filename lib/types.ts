@@ -25,6 +25,7 @@ export interface SpaceArea {
   type: SpaceType
   squareFeet: number
   isConditioned: boolean
+  excludeFromOccupancy?: boolean
 }
 
 export interface EquipmentItem {
@@ -32,8 +33,16 @@ export interface EquipmentItem {
   name: string
   footprint: number
   accessSpace: number
-  sharedClearance?: number  // clearance saved per adjacent pair when qty > 1; default 0
+  sharedClearance?: number
   quantity: number
+}
+
+/** Spatial position and dimensions of a space on the floor-plan canvas (in feet). */
+export interface SpaceLayout {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 export interface AppState {
@@ -42,9 +51,18 @@ export interface AppState {
   unconditionedLimit: number
   maxOccupants?: number
   farCap?: number
+  /** Canvas layouts keyed by SpaceArea.id — SF = w × h */
+  spaceLayouts: Record<string, SpaceLayout>
+  /** Facility boundary — spaces outside do not count toward occupancy */
+  enclosure?: SpaceLayout
   plannerLayout?: {
     equipmentPositions: Record<string, { x: number; y: number }>
   }
+}
+
+export function rectsOverlap(a: SpaceLayout, b: SpaceLayout): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x &&
+         a.y < b.y + b.h && a.y + a.h > b.y
 }
 
 export const WC_THRESHOLDS: Array<{ max: number; total: number; accessible: number }> = [

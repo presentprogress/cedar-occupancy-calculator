@@ -396,31 +396,47 @@ export function SpacePlanner({
           />
         )}
 
-        {/* ── Pool deck rings — always visible, rendered below rooms ── */}
-        {spaces.map(space => {
-          if (!isWater(space.type)) return null
-          const layout = localLayouts[space.id]
-          if (!layout) return null
-          const cx2 = px(layout.x + layout.w / 2)
-          const ry2 = px(layout.y - SETBACK)
-          return (
-            <g key={`deck-${space.id}`} pointerEvents="none">
-              <rect
-                x={px(layout.x - SETBACK)} y={ry2}
-                width={px(layout.w + SETBACK * 2)} height={px(layout.h + SETBACK * 2)}
-                fill={isDark ? "#271800" : "#fef3c7"} fillOpacity={isDark ? 0.9 : 0.88}
-                stroke={isDark ? "#d97706" : "#d97706"} strokeWidth={1.5}
-                rx={4}
-              />
-              <text x={cx2} y={ry2 - 3}
-                textAnchor="middle" fontSize={7.5}
-                fill={isDark ? "#fbbf24" : "#92400e"}
-                fontFamily="'Geist Mono',monospace">
-                3&apos; min deck
-              </text>
-            </g>
-          )
-        })}
+        {/* ── Pool deck rings — merged per overlapping water group ── */}
+        {(() => {
+          const waterSpaces = spaces.filter(s => isWater(s.type))
+          const seen = new Set<string>()
+          const groups: SpaceArea[][] = []
+          for (const s of waterSpaces) {
+            if (seen.has(s.id)) continue
+            const group = [s]; seen.add(s.id)
+            const la = localLayouts[s.id]
+            for (const o of waterSpaces) {
+              if (seen.has(o.id)) continue
+              const lb = localLayouts[o.id]
+              if (la && lb && rectsOverlap(la, lb)) { group.push(o); seen.add(o.id) }
+            }
+            groups.push(group)
+          }
+          return groups.map((group, gi) => {
+            const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
+            if (!ls.length) return null
+            const bx0 = Math.min(...ls.map(l => l.x))
+            const by0 = Math.min(...ls.map(l => l.y))
+            const bx1 = Math.max(...ls.map(l => l.x + l.w))
+            const by1 = Math.max(...ls.map(l => l.y + l.h))
+            const dx = px(bx0 - SETBACK), dy = px(by0 - SETBACK)
+            const dw = px(bx1 - bx0 + SETBACK * 2), dh = px(by1 - by0 + SETBACK * 2)
+            const cx2 = dx + dw / 2
+            return (
+              <g key={`deck-grp-${gi}`} pointerEvents="none">
+                <rect x={dx} y={dy} width={dw} height={dh}
+                  fill={isDark ? "#271800" : "#fef3c7"} fillOpacity={isDark ? 0.9 : 0.88}
+                  stroke="#d97706" strokeWidth={1.5} rx={4} />
+                <text x={cx2} y={dy - 3}
+                  textAnchor="middle" fontSize={7.5}
+                  fill={isDark ? "#fbbf24" : "#92400e"}
+                  fontFamily="'Geist Mono',monospace">
+                  3&apos; min deck
+                </text>
+              </g>
+            )
+          })
+        })()}
 
         {/* ── ROOMS ── */}
         {spaces.map(space => {

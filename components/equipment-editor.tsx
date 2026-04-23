@@ -8,6 +8,7 @@ import type { EquipmentItem } from "@/lib/types"
 
 interface EquipmentEditorProps {
   equipment: EquipmentItem[]
+  computedShared: Record<string, number>
   totalEquipmentSpace: number
   totalGymSF: number
   equipmentFitsInGym: boolean
@@ -18,6 +19,7 @@ interface EquipmentEditorProps {
 
 export function EquipmentEditor({
   equipment,
+  computedShared,
   totalEquipmentSpace,
   totalGymSF,
   equipmentFitsInGym,
@@ -49,7 +51,7 @@ export function EquipmentEditor({
 
       <div className="divide-y divide-border/40">
         {equipment.map((item) => {
-          const shared = item.sharedClearance ?? 0
+          const shared = computedShared[item.id] ?? 0
           const total = (item.footprint + item.accessSpace) * item.quantity
             - shared * Math.max(0, item.quantity - 1)
 
@@ -74,23 +76,36 @@ export function EquipmentEditor({
               </div>
 
               <div className="grid grid-cols-4 gap-2">
-                {([
-                  { label: "Equip SF", key: "footprint" as const, val: item.footprint, min: 0 },
-                  { label: "Access SF", key: "accessSpace" as const, val: item.accessSpace, min: 0 },
-                  { label: "Shared", key: "sharedClearance" as const, val: item.sharedClearance ?? 0, min: 0 },
-                  { label: "Qty", key: "quantity" as const, val: item.quantity, min: 1 },
-                ] as const).map(({ label, key, val, min }) => (
-                  <div key={key}>
-                    <Label className="text-[10px] text-muted-foreground">{label}</Label>
-                    <Input
-                      type="number"
-                      value={val}
-                      min={min}
-                      onChange={(e) => onUpdate(item.id, { [key]: Number(e.target.value) })}
-                      className="mt-0.5 h-7 text-xs"
-                    />
+                {/* Equip SF */}
+                <div>
+                  <Label className="text-[10px] text-muted-foreground">Equip SF</Label>
+                  <Input type="number" value={item.footprint} min={0}
+                    onChange={(e) => onUpdate(item.id, { footprint: Number(e.target.value) })}
+                    className="mt-0.5 h-7 text-xs" />
+                </div>
+                {/* Access SF */}
+                <div>
+                  <Label className="text-[10px] text-muted-foreground">Access SF</Label>
+                  <Input type="number" value={item.accessSpace} min={0}
+                    onChange={(e) => onUpdate(item.id, { accessSpace: Number(e.target.value) })}
+                    className="mt-0.5 h-7 text-xs" />
+                </div>
+                {/* Shared — read-only, canvas-derived */}
+                <div>
+                  <Label className="text-[10px] text-muted-foreground">
+                    Shared <span className="text-[8px] opacity-60">(canvas)</span>
+                  </Label>
+                  <div className="mt-0.5 flex h-7 items-center rounded-md border border-border/40 bg-muted/30 px-2">
+                    <span className="font-mono text-xs tabular-nums text-muted-foreground">{shared}</span>
                   </div>
-                ))}
+                </div>
+                {/* Qty */}
+                <div>
+                  <Label className="text-[10px] text-muted-foreground">Qty</Label>
+                  <Input type="number" value={item.quantity} min={1}
+                    onChange={(e) => onUpdate(item.id, { quantity: Number(e.target.value) })}
+                    className="mt-0.5 h-7 text-xs" />
+                </div>
               </div>
             </div>
           )

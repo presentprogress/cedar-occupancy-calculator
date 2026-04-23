@@ -25,6 +25,7 @@ export interface SpaceArea {
   type: SpaceType
   squareFeet: number
   isConditioned: boolean
+  excludeFromOccupancy?: boolean
 }
 
 export interface EquipmentItem {

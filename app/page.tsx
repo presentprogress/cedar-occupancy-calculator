@@ -120,6 +120,23 @@ export default function OccupancyCalculator() {
     }))
   }
 
+  const duplicateSpace = (srcId: string) => {
+    const src = spaces.find(s => s.id === srcId)
+    const srcLayout = spaceLayouts[srcId]
+    if (!src) return
+    const id = crypto.randomUUID()
+    setAppState((prev) => ({
+      ...prev,
+      spaces: [...prev.spaces, { ...src, id, name: `${src.name} (copy)` }],
+      spaceLayouts: {
+        ...prev.spaceLayouts,
+        [id]: srcLayout
+          ? { ...srcLayout, x: srcLayout.x + srcLayout.w + 2 }
+          : { x: 4, y: 4, w: 10, h: 10 },
+      },
+    }))
+  }
+
   const updateSpace = (id: string, updates: Partial<SpaceArea>) =>
     setAppState((prev) => ({
       ...prev,
@@ -173,16 +190,40 @@ export default function OccupancyCalculator() {
     const spaceResults = spaces.map((s) => {
       const layout = spaceLayouts[s.id]
       const inBounds = !enclosure || !layout || rectsOverlap(layout, enclosure)
+      const active = inBounds && !s.excludeFromOccupancy
       return {
         ...s,
         loadFactor: IBC_LOAD_FACTORS[s.type],
-        occupancy: inBounds ? Math.ceil(s.squareFeet / IBC_LOAD_FACTORS[s.type]) : 0,
+        occupancy: active ? Math.ceil(s.squareFeet / IBC_LOAD_FACTORS[s.type]) : 0,
         outsideEnclosure: !inBounds,
       }
     })
 
+    // Compute shared clearance from canvas positions (intersection of clearance zones)
+    const positions = appState.plannerLayout?.equipmentPositions ?? {}
+    const computedShared: Record<string, number> = {}
+    for (const item of equipment) {
+      const fw = Math.sqrt(item.footprint)
+      const border = item.accessSpace > 0 ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
+      const zones = Array.from({ length: item.quantity }, (_, i) => {
+        const pos = positions[`${item.id}:${i}`]
+        if (!pos) return null
+        return { x: pos.x - border, y: pos.y - border, w: fw + 2 * border, h: fw + 2 * border }
+      }).filter(Boolean) as { x: number; y: number; w: number; h: number }[]
+      let shared = 0
+      for (let i = 0; i < zones.length; i++) {
+        for (let j = i + 1; j < zones.length; j++) {
+          const [a, b] = [zones[i], zones[j]]
+          const iw = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x))
+          const ih = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y))
+          shared += iw * ih
+        }
+      }
+      computedShared[item.id] = Math.round(shared)
+    }
+
     const equipmentResults = equipment.map((item) => {
-      const shared = item.sharedClearance ?? 0
+      const shared = computedShared[item.id] ?? 0
       const unit = item.footprint + item.accessSpace
       return { ...item, totalSpace: unit * item.quantity - shared * Math.max(0, item.quantity - 1) }
     })
@@ -195,7 +236,7 @@ export default function OccupancyCalculator() {
     const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
 
     return {
-      spaceResults, totalEquipmentSpace, conditionedSF, unconditionedSF, totalOccupancy, totalGymSF,
+      spaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalOccupancy, totalGymSF,
       equipmentFitsInGym: totalGymSF >= totalEquipmentSpace,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
       farOverLimit: farCap !== undefined && conditionedSF > farCap,
@@ -203,7 +244,7 @@ export default function OccupancyCalculator() {
       wc: getWCRequirements(totalOccupancy),
       lavatories: getLavatoryCount(totalOccupancy),
     }
-  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts, enclosure])
+  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts, enclosure, appState.plannerLayout])
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -340,6 +381,7 @@ export default function OccupancyCalculator() {
         {/* ── Flow chain → restrooms ── */}
         <FlowChain
           spaceResults={calc.spaceResults}
+          spaceLayouts={spaceLayouts}
           totalOccupancy={calc.totalOccupancy}
         />
 
@@ -348,11 +390,13 @@ export default function OccupancyCalculator() {
           <SpaceEditor
             spaces={spaces}
             onAdd={addSpace}
+            onDuplicate={duplicateSpace}
             onUpdate={updateSpace}
             onRemove={removeSpace}
           />
           <EquipmentEditor
             equipment={equipment}
+            computedShared={calc.computedShared}
             totalEquipmentSpace={calc.totalEquipmentSpace}
             totalGymSF={calc.totalGymSF}
             equipmentFitsInGym={calc.equipmentFitsInGym}

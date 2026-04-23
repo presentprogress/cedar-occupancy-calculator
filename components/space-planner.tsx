@@ -649,6 +649,22 @@ export function SpacePlanner({
                   />
                 )
               })}
+
+              {/* Dimension callouts — always visible on enclosure */}
+              <g pointerEvents="none" fontSize={9} fontFamily="'Geist Mono',monospace" fill={encStroke}>
+                {/* Width — bottom */}
+                <line x1={ex} y1={ey + eh + 16} x2={ex + ew} y2={ey + eh + 16} stroke={encStroke} strokeWidth={0.8} />
+                <line x1={ex} y1={ey + eh + 11} x2={ex} y2={ey + eh + 21} stroke={encStroke} strokeWidth={0.8} />
+                <line x1={ex + ew} y1={ey + eh + 11} x2={ex + ew} y2={ey + eh + 21} stroke={encStroke} strokeWidth={0.8} />
+                <text x={ecx} y={ey + eh + 28} textAnchor="middle" fontWeight="600">{ftArch(localEnclosure!.w)}</text>
+                {/* Height — right */}
+                <line x1={ex + ew + 16} y1={ey} x2={ex + ew + 16} y2={ey + eh} stroke={encStroke} strokeWidth={0.8} />
+                <line x1={ex + ew + 11} y1={ey} x2={ex + ew + 21} y2={ey} stroke={encStroke} strokeWidth={0.8} />
+                <line x1={ex + ew + 11} y1={ey + eh} x2={ex + ew + 21} y2={ey + eh} stroke={encStroke} strokeWidth={0.8} />
+                <text x={ex + ew + 28} y={ecy + 3} textAnchor="middle" fontWeight="600"
+                  transform={`rotate(-90 ${ex + ew + 28} ${ecy})`}>{ftArch(localEnclosure!.h)}
+                </text>
+              </g>
             </g>
           )
         })()}

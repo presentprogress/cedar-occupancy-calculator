@@ -231,7 +231,40 @@ export default function OccupancyCalculator() {
     const totalEquipmentSpace = equipmentResults.reduce((s, e) => s + e.totalSpace, 0)
     const conditionedSF = spaces.filter((s) => s.isConditioned).reduce((s, sp) => s + sp.squareFeet, 0)
     const unconditionedSF = spaces.filter((s) => !s.isConditioned).reduce((s, sp) => s + sp.squareFeet, 0)
-    const totalOccupancy = spaceResults.reduce((s, sp) => s + sp.occupancy, 0)
+
+    // Auto pool-deck occupancy — 3' setback ring around each water surface group
+    const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
+    const waterSpacesForDeck = spaces.filter(s => waterTypes.has(s.type))
+    const seenW = new Set<string>()
+    function rectUnionArea(ls: {x:number,y:number,w:number,h:number}[]) {
+      let a = ls.reduce((s, l) => s + l.w * l.h, 0)
+      for (let i = 0; i < ls.length; i++)
+        for (let j = i+1; j < ls.length; j++) {
+          const [p, q] = [ls[i], ls[j]]
+          a -= Math.max(0, Math.min(p.x+p.w, q.x+q.w) - Math.max(p.x, q.x)) *
+               Math.max(0, Math.min(p.y+p.h, q.y+q.h) - Math.max(p.y, q.y))
+        }
+      return a
+    }
+    let autoDeckOcc = 0
+    for (const s of waterSpacesForDeck) {
+      if (seenW.has(s.id)) continue
+      const grp = [s]; seenW.add(s.id)
+      const la = spaceLayouts[s.id]
+      for (const o of waterSpacesForDeck) {
+        if (seenW.has(o.id)) continue
+        const lb = spaceLayouts[o.id]
+        if (la && lb && rectsOverlap(la, lb)) { grp.push(o); seenW.add(o.id) }
+      }
+      const ls = grp.map(g => spaceLayouts[g.id]).filter(Boolean)
+      if (!ls.length) continue
+      const waterArea = rectUnionArea(ls)
+      const expanded = ls.map(l => ({ x: l.x-3, y: l.y-3, w: l.w+6, h: l.h+6 }))
+      const deckSF = Math.max(0, Math.round(rectUnionArea(expanded) - waterArea))
+      autoDeckOcc += Math.ceil(deckSF / 15)
+    }
+
+    const totalOccupancy = spaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc
     const gymTypes = ["Exercise Room (Equipment)", "Exercise Room (Concentrated)"]
     const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
 

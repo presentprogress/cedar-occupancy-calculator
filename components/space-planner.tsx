@@ -396,7 +396,7 @@ export function SpacePlanner({
           />
         )}
 
-        {/* ── Pool deck rings — merged per overlapping water group ── */}
+        {/* ── Pool deck rings — per-pool expanded rings, masked to true 3' contour ── */}
         {(() => {
           const waterSpaces = spaces.filter(s => isWater(s.type))
           const seen = new Set<string>()
@@ -412,22 +412,60 @@ export function SpacePlanner({
             }
             groups.push(group)
           }
+          const deckFill = isDark ? "#271800" : "#fef3c7"
+          const deckOpacity = isDark ? 0.92 : 0.9
+          const deckStroke = isDark ? "#d97706" : "#d97706"
+
           return groups.map((group, gi) => {
             const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
             if (!ls.length) return null
+            // Bounding box of entire group (for label placement + mask rect)
             const bx0 = Math.min(...ls.map(l => l.x))
             const by0 = Math.min(...ls.map(l => l.y))
             const bx1 = Math.max(...ls.map(l => l.x + l.w))
             const by1 = Math.max(...ls.map(l => l.y + l.h))
-            const dx = px(bx0 - SETBACK), dy = px(by0 - SETBACK)
-            const dw = px(bx1 - bx0 + SETBACK * 2), dh = px(by1 - by0 + SETBACK * 2)
-            const cx2 = dx + dw / 2
+            // Canvas coords of the mask coverage area
+            const mx = px(bx0 - SETBACK - 0.5), my = px(by0 - SETBACK - 0.5)
+            const mw = px(bx1 - bx0 + (SETBACK + 0.5) * 2)
+            const mh = px(by1 - by0 + (SETBACK + 0.5) * 2)
+            const labelX = px((bx0 + bx1) / 2), labelY = px(by0 - SETBACK) - 3
+            const maskId = `dm-${gi}`
+
             return (
               <g key={`deck-grp-${gi}`} pointerEvents="none">
-                <rect x={dx} y={dy} width={dw} height={dh}
-                  fill={isDark ? "#271800" : "#fef3c7"} fillOpacity={isDark ? 0.9 : 0.88}
-                  stroke="#d97706" strokeWidth={1.5} rx={4} />
-                <text x={cx2} y={dy - 3}
+                <defs>
+                  <mask id={maskId}>
+                    {/* White = show amber: one expanded rect per pool */}
+                    {ls.map((l, li) => (
+                      <rect key={`exp-${li}`}
+                        x={px(l.x - SETBACK)} y={px(l.y - SETBACK)}
+                        width={px(l.w + SETBACK * 2)} height={px(l.h + SETBACK * 2)}
+                        fill="white" />
+                    ))}
+                    {/* Black = cut out: the actual water bodies */}
+                    {ls.map((l, li) => (
+                      <rect key={`cut-${li}`}
+                        x={px(l.x)} y={px(l.y)}
+                        width={px(l.w)} height={px(l.h)}
+                        fill="black" />
+                    ))}
+                  </mask>
+                </defs>
+
+                {/* Amber fill — shaped to true 3' margin via mask */}
+                <rect x={mx} y={my} width={mw} height={mh}
+                  fill={deckFill} fillOpacity={deckOpacity}
+                  mask={`url(#${maskId})`} />
+
+                {/* Amber outline around each pool's expanded rect (behind pool bodies) */}
+                {ls.map((l, li) => (
+                  <rect key={`str-${li}`}
+                    x={px(l.x - SETBACK)} y={px(l.y - SETBACK)}
+                    width={px(l.w + SETBACK * 2)} height={px(l.h + SETBACK * 2)}
+                    fill="none" stroke={deckStroke} strokeWidth={1.5} rx={3} />
+                ))}
+
+                <text x={labelX} y={labelY}
                   textAnchor="middle" fontSize={7.5}
                   fill={isDark ? "#fbbf24" : "#92400e"}
                   fontFamily="'Geist Mono',monospace">

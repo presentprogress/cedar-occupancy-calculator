@@ -233,7 +233,7 @@ export function SpacePlanner({
     return merged
   }, [spaces, localLayouts])
 
-  // Canvas size
+  // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
     let maxX = 60, maxY = 80
     for (const l of Object.values(localLayouts)) {
@@ -244,8 +244,12 @@ export function SpacePlanner({
       maxX = Math.max(maxX, p.x + 12)
       maxY = Math.max(maxY, p.y + 12)
     }
+    if (localEnclosure) {
+      maxX = Math.max(maxX, localEnclosure.x + localEnclosure.w + 4)
+      maxY = Math.max(maxY, localEnclosure.y + localEnclosure.h + 4)
+    }
     return { svgW: maxX * PX, svgH: maxY * PX }
-  }, [localLayouts, equipPos])
+  }, [localLayouts, equipPos, localEnclosure])
 
   // ── Pointer ──────────────────────────────────────────────────────────────────
   function toFt(e: React.PointerEvent): EPos {

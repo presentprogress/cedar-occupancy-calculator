@@ -73,7 +73,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
   type Row =
     | { kind: "space"; space: SpaceResult }
     | { kind: "water-group"; group: SpaceResult[]; sf: number; occ: number }
-    | { kind: "auto-deck"; label: string; sf: number; occ: number }
+    | { kind: "auto-deck"; sf: number; occ: number; infoOnly: boolean }
 
   const rows: Row[] = []
 
@@ -84,15 +84,12 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
     const occ = group.some(s => s.excludeFromOccupancy) ? 0 : Math.ceil(area / WATER_FACTOR)
     rows.push({ kind: "water-group", group, sf: area, occ })
 
-    // Auto pool deck (min.) — skipped when user has a manual Pool Deck space
-    if (ls.length && !hasManualPoolDeck) {
+    // Always show auto pool deck SF; infoOnly when a manual Pool Deck space is present
+    if (ls.length) {
       const expanded = ls.map(l => ({ x: l.x - SETBACK, y: l.y - SETBACK, w: l.w + 2*SETBACK, h: l.h + 2*SETBACK }))
       const deckSF = Math.max(0, Math.round(unionInfo(expanded).area - area))
       const deckOcc = Math.ceil(deckSF / DECK_FACTOR)
-      const label = group.length > 1
-        ? `Pool Deck (Min.) — ${group.map(s => s.name).join(" + ")}`
-        : `Pool Deck (Min.) — ${group[0].name}`
-      rows.push({ kind: "auto-deck", label, sf: deckSF, occ: deckOcc })
+      rows.push({ kind: "auto-deck", sf: deckSF, occ: deckOcc, infoOnly: hasManualPoolDeck })
     }
   }
 
@@ -140,18 +137,22 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
             }
 
             if (row.kind === "auto-deck") {
-              const { label, sf, occ } = row
+              const { sf, occ, infoOnly } = row
               return (
                 <div key={`deck-${i}`}
-                  className="grid grid-cols-[1fr,72px,80px,36px] items-center gap-x-2 px-3 py-1 bg-amber-500/5">
+                  className={`grid grid-cols-[1fr,72px,80px,36px] items-center gap-x-2 px-3 py-1 bg-amber-500/5 ${infoOnly ? "opacity-45" : ""}`}>
                   <div className="flex min-w-0 items-center gap-1.5">
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/70" />
-                    <span className="truncate text-xs font-medium text-amber-600 dark:text-amber-400">{label}</span>
-                    <span className="shrink-0 rounded font-mono text-[8px] text-amber-500/60">auto</span>
+                    <span className="truncate text-xs font-medium text-amber-600 dark:text-amber-400">Pool Deck (Auto)</span>
+                    {infoOnly
+                      ? <span className="shrink-0 rounded font-mono text-[8px] text-muted-foreground">ref only</span>
+                      : <span className="shrink-0 rounded font-mono text-[8px] text-amber-500/60">auto</span>}
                   </div>
                   <span className="text-right font-mono text-xs tabular-nums">{sf.toLocaleString()}</span>
-                  <span className="text-right font-mono text-[10px] text-muted-foreground">÷ {DECK_FACTOR} SF/p</span>
-                  <span className="text-right font-bold text-xs tabular-nums text-amber-500">{occ}</span>
+                  <span className="text-right font-mono text-[10px] text-muted-foreground">{infoOnly ? "" : `÷ ${DECK_FACTOR} SF/p`}</span>
+                  <span className={`text-right font-bold text-xs tabular-nums ${infoOnly ? "text-muted-foreground" : "text-amber-500"}`}>
+                    {occ}
+                  </span>
                 </div>
               )
             }

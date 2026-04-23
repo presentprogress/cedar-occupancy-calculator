@@ -428,6 +428,20 @@ export function SpacePlanner({
             const by0 = Math.min(...ls.map(l => l.y))
             const bx1 = Math.max(...ls.map(l => l.x + l.w))
             const by1 = Math.max(...ls.map(l => l.y + l.h))
+            // Deck SF/occ — union of expanded rects minus water union
+            const unionArea = (rects: {x:number,y:number,w:number,h:number}[]) => {
+              let a = rects.reduce((s,r) => s + r.w*r.h, 0)
+              for (let i=0;i<rects.length;i++) for (let j=i+1;j<rects.length;j++) {
+                const [p,q]=[rects[i],rects[j]]
+                a -= Math.max(0,Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x)) *
+                     Math.max(0,Math.min(p.y+p.h,q.y+q.h)-Math.max(p.y,q.y))
+              }
+              return a
+            }
+            const waterArea = unionArea(ls)
+            const expanded = ls.map(l => ({x:l.x-SETBACK,y:l.y-SETBACK,w:l.w+SETBACK*2,h:l.h+SETBACK*2}))
+            const deckSF = Math.max(0, Math.round(unionArea(expanded) - waterArea))
+            const deckOcc = Math.ceil(deckSF / 15)
             // Canvas coords of the mask coverage area
             const mx = px(bx0 - SETBACK - 0.5), my = px(by0 - SETBACK - 0.5)
             const mw = px(bx1 - bx0 + (SETBACK + 0.5) * 2)
@@ -472,11 +486,12 @@ export function SpacePlanner({
                   mask={`url(#${maskId})`}
                   filter={`url(#${filterId})`} />
 
-                <text x={labelX} y={labelY}
-                  textAnchor="middle" fontSize={7.5}
+                <text textAnchor="middle" fontSize={7.5}
                   fill={isDark ? "#fbbf24" : "#92400e"}
                   fontFamily="'Geist Mono',monospace">
-                  3&apos; min deck
+                  <tspan x={labelX} dy={0} y={labelY}>Pool Deck (Auto) · {deckSF.toLocaleString()} SF</tspan>
+                  <tspan x={labelX} dy={10} fontWeight="bold" fontSize={9}>{deckOcc}</tspan>
+                  <tspan fontSize={7} opacity={0.7}> occ</tspan>
                 </text>
               </g>
             )

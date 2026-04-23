@@ -79,13 +79,14 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
   // Water groups first
   for (const group of waterGroups) {
     const ls = group.map(s => spaceLayouts[s.id]).filter(Boolean)
-    const { area, bbox } = ls.length ? unionInfo(ls) : { area: group.reduce((s,g) => s + g.squareFeet, 0), bbox: null }
+    const { area } = ls.length ? unionInfo(ls) : { area: group.reduce((s,g) => s + g.squareFeet, 0) }
     const occ = group.some(s => s.excludeFromOccupancy) ? 0 : Math.ceil(area / WATER_FACTOR)
     rows.push({ kind: "water-group", group, sf: area, occ })
 
-    // Auto pool deck (min.) for this group
-    if (bbox) {
-      const deckSF = Math.round((bbox.w + 2*SETBACK) * (bbox.h + 2*SETBACK) - area)
+    // Auto pool deck (min.) — union of expanded rects minus water union (no double-count)
+    if (ls.length) {
+      const expanded = ls.map(l => ({ x: l.x - SETBACK, y: l.y - SETBACK, w: l.w + 2*SETBACK, h: l.h + 2*SETBACK }))
+      const deckSF = Math.max(0, Math.round(unionInfo(expanded).area - area))
       const deckOcc = Math.ceil(deckSF / DECK_FACTOR)
       const label = group.length > 1
         ? `Pool Deck (Min.) — ${group.map(s => s.name).join(" + ")}`

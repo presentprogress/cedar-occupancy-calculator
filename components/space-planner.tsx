@@ -431,18 +431,17 @@ export function SpacePlanner({
             const labelX = px((bx0 + bx1) / 2), labelY = px(by0 - SETBACK) - 3
             const maskId = `dm-${gi}`
 
+            const filterId = `df${gi}`
             return (
               <g key={`deck-grp-${gi}`} pointerEvents="none">
                 <defs>
                   <mask id={maskId}>
-                    {/* White = show amber: one expanded rect per pool */}
                     {ls.map((l, li) => (
                       <rect key={`exp-${li}`}
                         x={px(l.x - SETBACK)} y={px(l.y - SETBACK)}
                         width={px(l.w + SETBACK * 2)} height={px(l.h + SETBACK * 2)}
                         fill="white" />
                     ))}
-                    {/* Black = cut out: the actual water bodies */}
                     {ls.map((l, li) => (
                       <rect key={`cut-${li}`}
                         x={px(l.x)} y={px(l.y)}
@@ -450,20 +449,24 @@ export function SpacePlanner({
                         fill="black" />
                     ))}
                   </mask>
+                  {/* Filter: dilate shape → subtract original → amber border ring */}
+                  <filter id={filterId} x="-6%" y="-6%" width="112%" height="112%" colorInterpolationFilters="sRGB">
+                    <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
+                    <feComposite in="dilated" in2="SourceAlpha" operator="out" result="borderAlpha"/>
+                    <feFlood floodColor="#d97706" result="col"/>
+                    <feComposite in="col" in2="borderAlpha" operator="in" result="border"/>
+                    <feMerge>
+                      <feMergeNode in="SourceGraphic"/>
+                      <feMergeNode in="border"/>
+                    </feMerge>
+                  </filter>
                 </defs>
 
-                {/* Amber fill — shaped to true 3' margin via mask */}
+                {/* Amber fill masked to true 3' contour, with contour-following border via filter */}
                 <rect x={mx} y={my} width={mw} height={mh}
                   fill={deckFill} fillOpacity={deckOpacity}
-                  mask={`url(#${maskId})`} />
-
-                {/* Amber outline around each pool's expanded rect (behind pool bodies) */}
-                {ls.map((l, li) => (
-                  <rect key={`str-${li}`}
-                    x={px(l.x - SETBACK)} y={px(l.y - SETBACK)}
-                    width={px(l.w + SETBACK * 2)} height={px(l.h + SETBACK * 2)}
-                    fill="none" stroke={deckStroke} strokeWidth={1.5} rx={3} />
-                ))}
+                  mask={`url(#${maskId})`}
+                  filter={`url(#${filterId})`} />
 
                 <text x={labelX} y={labelY}
                   textAnchor="middle" fontSize={7.5}

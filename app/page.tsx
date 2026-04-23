@@ -13,6 +13,7 @@ import { HeroMetrics } from "@/components/hero-metrics"
 import { FlowChain } from "@/components/flow-chain"
 import { SpaceEditor } from "@/components/space-editor"
 import { EquipmentEditor } from "@/components/equipment-editor"
+import { OccupancyChart } from "@/components/occupancy-chart"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useUndoableState } from "@/hooks/use-undoable-state"
 import { useAutoSnapshot } from "@/hooks/use-auto-snapshot"
@@ -109,14 +110,13 @@ export default function OccupancyCalculator() {
   // ── Space mutations ──────────────────────────────────────────────────────────
   const addSpace = () => {
     const id = crypto.randomUUID()
-    const maxY = Object.values(spaceLayouts).reduce((m, l) => Math.max(m, l.y + l.h), 0)
     setAppState((prev) => ({
       ...prev,
-      spaces: [...prev.spaces, {
+      spaces: [{
         id, name: "New Space", type: "Pool Deck" as SpaceType,
         squareFeet: 100, isConditioned: true,
-      }],
-      spaceLayouts: { ...prev.spaceLayouts, [id]: { x: 4, y: maxY + 4, w: 10, h: 10 } },
+      }, ...prev.spaces],
+      spaceLayouts: { ...prev.spaceLayouts, [id]: { x: 4, y: 4, w: 10, h: 10 } },
     }))
   }
 
@@ -125,16 +125,21 @@ export default function OccupancyCalculator() {
     const srcLayout = spaceLayouts[srcId]
     if (!src) return
     const id = crypto.randomUUID()
-    setAppState((prev) => ({
-      ...prev,
-      spaces: [...prev.spaces, { ...src, id, name: `${src.name} (copy)` }],
-      spaceLayouts: {
-        ...prev.spaceLayouts,
-        [id]: srcLayout
-          ? { ...srcLayout, x: srcLayout.x + srcLayout.w + 2 }
-          : { x: 4, y: 4, w: 10, h: 10 },
-      },
-    }))
+    setAppState((prev) => {
+      const srcIndex = prev.spaces.findIndex(s => s.id === srcId)
+      const newSpaces = [...prev.spaces]
+      newSpaces.splice(srcIndex + 1, 0, { ...src, id, name: `${src.name} (copy)` })
+      return {
+        ...prev,
+        spaces: newSpaces,
+        spaceLayouts: {
+          ...prev.spaceLayouts,
+          [id]: srcLayout
+            ? { ...srcLayout, x: srcLayout.x + srcLayout.w + 2 }
+            : { x: 4, y: 4, w: 10, h: 10 },
+        },
+      }
+    })
   }
 
   const updateSpace = (id: string, updates: Partial<SpaceArea>) =>
@@ -170,10 +175,10 @@ export default function OccupancyCalculator() {
   const addEquipment = () =>
     setAppState((prev) => ({
       ...prev,
-      equipment: [...prev.equipment, {
+      equipment: [{
         id: crypto.randomUUID(), name: "New Equipment",
         footprint: 15, accessSpace: 30, sharedClearance: 0, quantity: 1,
-      }],
+      }, ...prev.equipment],
     }))
 
   const updateEquipment = (id: string, updates: Partial<EquipmentItem>) =>
@@ -281,6 +286,7 @@ export default function OccupancyCalculator() {
 
     return {
       spaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, totalOccupancy, totalGymSF,
+      autoDeckOcc,
       equipmentFitsInGym: totalGymSF >= totalEquipmentSpace,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
       farOverLimit: farCap !== undefined && conditionedSF > farCap,
@@ -298,8 +304,8 @@ export default function OccupancyCalculator() {
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur-sm">
         <div className="mx-auto max-w-[1600px] flex items-center justify-between gap-4 px-4 py-3 lg:px-8">
           <div className="shrink-0">
-            <h1 className="text-sm font-semibold">Cedar Occupancy Calculator</h1>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <h1 className="text-base font-semibold">Cedar Occupancy Calculator</h1>
+            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               IBC Table 1004.5 · Amenity Spaces
             </p>
           </div>
@@ -313,7 +319,7 @@ export default function OccupancyCalculator() {
                 a.download = `cedar-debug-${new Date().toISOString().slice(0,19).replace(/:/g,"-")}.json`
                 a.click(); URL.revokeObjectURL(url)
               }}
-              className="rounded-md border border-border/60 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted/40"
+              className="rounded-md border border-border/60 px-2 py-1 font-mono text-xs uppercase tracking-widest text-muted-foreground hover:bg-muted/40"
               title="Export debug JSON"
             >
               JSON
@@ -332,7 +338,7 @@ export default function OccupancyCalculator() {
 
         {/* ── Settings (top) ── */}
         <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-border/60 bg-card px-4 py-3">
-          <p className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          <p className="shrink-0 font-mono text-xs uppercase tracking-widest text-muted-foreground">
             Project Settings
           </p>
           <div className="flex items-center gap-2">
@@ -380,7 +386,7 @@ export default function OccupancyCalculator() {
             { label: "Lavatories", value: calc.lavatories, sub: `for ${calc.totalOccupancy} occ` },
           ].map(({ label, value, sub }) => (
             <div key={label} className="overflow-hidden rounded-xl border border-border/60 bg-card px-4 py-3 flex flex-col gap-1">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
               <p className="font-black tabular-nums text-4xl leading-none">{value}</p>
               <p className="font-mono text-[10px] text-muted-foreground">{sub}</p>
             </div>
@@ -401,11 +407,18 @@ export default function OccupancyCalculator() {
           remainingOccupantLoad={calc.remainingOccupantLoad}
         />
 
+        {/* ── Occupancy Chart ── */}
+        <OccupancyChart
+          segments={calc.spaceResults}
+          autoDeckOcc={calc.autoDeckOcc}
+          totalOccupancy={calc.totalOccupancy}
+        />
+
         {/* ── Canvas (primary — drag handles set SF) ── */}
         <section className="overflow-hidden rounded-xl border border-border/60">
           <div className="flex items-center justify-between border-b border-border/60 bg-card px-4 py-2.5">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
                 Floor Plan · drag room edges to resize · drag equipment to reposition · drag footprint inside clearance zone
               </p>
             </div>
@@ -434,6 +447,7 @@ export default function OccupancyCalculator() {
                 plannerLayout: { equipmentPositions: positions },
               }), { skipHistory: true })
             }
+            onEquipResize={updateEquipment}
           />
         </section>
 
@@ -460,6 +474,8 @@ export default function OccupancyCalculator() {
             spaceResults={calc.spaceResults}
             spaceLayouts={spaceLayouts}
             totalOccupancy={calc.totalOccupancy}
+            farCap={farCap}
+            unconditionedLimit={unconditionedLimit}
           />
         </section>
 
@@ -469,7 +485,7 @@ export default function OccupancyCalculator() {
             className="flex w-full items-center justify-between border-b border-border/60 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/40"
             onClick={() => setIbcOpen(!ibcOpen)}
           >
-            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
               IBC Table 1004.5 — Load Factor Reference
             </p>
             {ibcOpen

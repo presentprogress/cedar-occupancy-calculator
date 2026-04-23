@@ -14,18 +14,27 @@ const SETBACK = 3       // ft pool-deck setback
 const EQUIP_GAP = 1.5   // ft gap between equipment items in default layout
 
 // ─── Room colours ─────────────────────────────────────────────────────────────
+// Color families map to occupancy/use category:
+//   Water surfaces (all 50 SF/p) → blue
+//   Exercise → green   Thermal → red   Deck/lounge → amber/orange
+//   Support (restroom, locker, storage, circulation) → neutral slate
 type CS = { fill: string; stroke: string; text: string }
 const ROOM_COLORS: Record<string, CS> = {
+  // Water — blue family (same calc method)
   "Swimming Pool (Water Surface)":  { fill: "#dbeafe", stroke: "#2563eb", text: "#1e40af" },
+  "Spa/Hot Tub (Water Surface)":    { fill: "#dbeafe", stroke: "#1d4ed8", text: "#1e3a8a" },
+  "Cold Plunge (Water Surface)":    { fill: "#e0f9ff", stroke: "#0284c7", text: "#0c4a6e" },
+  // Deck
   "Pool Deck":                      { fill: "#fef3c7", stroke: "#d97706", text: "#92400e" },
+  // Exercise
   "Exercise Room (Equipment)":      { fill: "#dcfce7", stroke: "#16a34a", text: "#15803d" },
   "Exercise Room (Concentrated)":   { fill: "#d1fae5", stroke: "#059669", text: "#065f46" },
+  // Thermal
   "Sauna/Steam Room":               { fill: "#fee2e2", stroke: "#dc2626", text: "#991b1b" },
-  "Cold Plunge (Water Surface)":    { fill: "#e0f2fe", stroke: "#0284c7", text: "#0c4a6e" },
-  "Spa/Hot Tub (Water Surface)":    { fill: "#ede9fe", stroke: "#7c3aed", text: "#4c1d95" },
-  "Locker Room":                    { fill: "#e0f2fe", stroke: "#0369a1", text: "#0c4a6e" },
+  // Support — neutral slate (no direct occupancy category)
+  "Locker Room":                    { fill: "#f1f5f9", stroke: "#64748b", text: "#374151" },
   "Lobby/Reception":                { fill: "#f0fdf4", stroke: "#15803d", text: "#14532d" },
-  "Restroom":                       { fill: "#f5f3ff", stroke: "#7c3aed", text: "#4c1d95" },
+  "Restroom":                       { fill: "#f1f5f9", stroke: "#64748b", text: "#374151" },
   "Circulation":                    { fill: "#f3f4f6", stroke: "#6b7280", text: "#374151" },
   "Lounge/Seating Area":            { fill: "#fff7ed", stroke: "#c2410c", text: "#7c2d12" },
   "Storage":                        { fill: "#f9fafb", stroke: "#9ca3af", text: "#6b7280" },
@@ -33,16 +42,21 @@ const ROOM_COLORS: Record<string, CS> = {
   "Office":                         { fill: "#fffbeb", stroke: "#b45309", text: "#78350f" },
 }
 const ROOM_COLORS_DARK: Record<string, CS> = {
+  // Water — blue family
   "Swimming Pool (Water Surface)":  { fill: "#0b1e3d", stroke: "#3b82f6", text: "#93c5fd" },
+  "Spa/Hot Tub (Water Surface)":    { fill: "#0c1f3a", stroke: "#60a5fa", text: "#bfdbfe" },
+  "Cold Plunge (Water Surface)":    { fill: "#051a2e", stroke: "#38bdf8", text: "#7dd3fc" },
+  // Deck
   "Pool Deck":                      { fill: "#271800", stroke: "#d97706", text: "#fbbf24" },
+  // Exercise
   "Exercise Room (Equipment)":      { fill: "#0a1e0e", stroke: "#16a34a", text: "#86efac" },
   "Exercise Room (Concentrated)":   { fill: "#0a1e11", stroke: "#059669", text: "#6ee7b7" },
+  // Thermal
   "Sauna/Steam Room":               { fill: "#280a0a", stroke: "#dc2626", text: "#fca5a5" },
-  "Cold Plunge (Water Surface)":    { fill: "#091c2d", stroke: "#0284c7", text: "#7dd3fc" },
-  "Spa/Hot Tub (Water Surface)":    { fill: "#18092a", stroke: "#7c3aed", text: "#c4b5fd" },
-  "Locker Room":                    { fill: "#091827", stroke: "#0369a1", text: "#7dd3fc" },
+  // Support — neutral slate
+  "Locker Room":                    { fill: "#111827", stroke: "#475569", text: "#94a3b8" },
   "Lobby/Reception":                { fill: "#091a0e", stroke: "#15803d", text: "#86efac" },
-  "Restroom":                       { fill: "#13092a", stroke: "#7c3aed", text: "#c4b5fd" },
+  "Restroom":                       { fill: "#111827", stroke: "#475569", text: "#94a3b8" },
   "Circulation":                    { fill: "#141414", stroke: "#4b5563", text: "#9ca3af" },
   "Lounge/Seating Area":            { fill: "#271200", stroke: "#c2410c", text: "#fb923c" },
   "Storage":                        { fill: "#101010", stroke: "#374151", text: "#6b7280" },
@@ -50,11 +64,12 @@ const ROOM_COLORS_DARK: Record<string, CS> = {
   "Office":                         { fill: "#1a1300", stroke: "#b45309", text: "#fbbf24" },
 }
 const FB_L: CS = { fill: "#f3f4f6", stroke: "#6b7280", text: "#374151" }
-const FB_D: CS = { fill: "#141414", stroke: "#374151", text: "#9ca3af" }
+const FB_D: CS = { fill: "#1e293b", stroke: "#475569", text: "#94a3b8" }
 
+// Equipment palette — neutral slate: equipment is layout/SF, not an occupancy category
 const EQUIP_PALETTE = [
-  "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
-  "#ec4899","#14b8a6","#f97316","#84cc16","#06b6d4",
+  "#64748b","#78716c","#6b7280","#52525b","#57534e",
+  "#475569","#71717a","#4b5563","#737373","#9ca3af",
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -136,10 +151,12 @@ function mergeEquipDefaults(
 // ─── Drag state ───────────────────────────────────────────────────────────────
 type RoomHandle = "left" | "right" | "top" | "bottom" | "move"
 type Drag =
-  | { kind: "room";      id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
-  | { kind: "enclosure"; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
-  | { kind: "equip-zone"; key: IKey; startFt: EPos; startPos: EPos }
-  | { kind: "equip-fp";  key: IKey; startFt: EPos; startOff: EPos; border: number }
+  | { kind: "room";             id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "enclosure";        handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "equip-zone";       key: IKey; startFt: EPos; startPos: EPos }
+  | { kind: "equip-fp";         key: IKey; startFt: EPos; startOff: EPos; border: number }
+  | { kind: "equip-resize-fp";  key: IKey; itemId: string; startFt: EPos; startFw: number }
+  | { kind: "equip-resize-zone"; key: IKey; itemId: string; startFt: EPos; startFw: number; startBorder: number }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface SpacePlannerProps {
@@ -152,17 +169,19 @@ interface SpacePlannerProps {
   onSpaceResize: (id: string, layout: SpaceLayout) => void
   onEnclosureChange: (e: SpaceLayout) => void
   onEquipPositionsChange: (p: Positions) => void
+  onEquipResize?: (id: string, updates: Partial<EquipmentItem>) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export function SpacePlanner({
   spaces, equipment, spaceLayouts, enclosure,
   storedEquipPositions, isDark,
-  onSpaceResize, onEnclosureChange, onEquipPositionsChange,
+  onSpaceResize, onEnclosureChange, onEquipPositionsChange, onEquipResize,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
 
   // Local mutable copies of layouts and equip positions
   const [localLayouts, setLocalLayouts] = useState(spaceLayouts)
@@ -193,8 +212,8 @@ export function SpacePlanner({
   // Colour helpers
   const palette = isDark ? ROOM_COLORS_DARK : ROOM_COLORS
   const fb = isDark ? FB_D : FB_L
-  const gridColor = isDark ? "#131b2e" : "#e5e7eb"
-  const bgColor = isDark ? "#080c17" : "#f8fafc"
+  const gridColor = isDark ? "#1a2540" : "#e5e7eb"
+  const bgColor = isDark ? "#0d1525" : "#f8fafc"
   const dimColor = isDark ? "#4b5563" : "#9ca3af"
   const occColor = isDark ? "#f59e0b" : "#d97706"
 
@@ -284,6 +303,18 @@ export function SpacePlanner({
     setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, border })
   }
 
+  function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, startFw: number) {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ kind: "equip-resize-fp", key, itemId, startFt: toFt(e), startFw })
+  }
+
+  function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, startFw: number, startBorder: number) {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ kind: "equip-resize-zone", key, itemId, startFt: toFt(e), startFw, startBorder })
+  }
+
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
     if (!drag) return
     const ft = toFt(e)
@@ -329,6 +360,15 @@ export function SpacePlanner({
           y: Math.max(0, Math.min(2 * border, drag.startOff.y + dy)),
         },
       }))
+    } else if (drag.kind === "equip-resize-fp") {
+      const delta = (dx + dy) / 2
+      const newFw = Math.max(2, drag.startFw + delta)
+      onEquipResize?.(drag.itemId, { footprint: Math.round(newFw * newFw) })
+    } else if (drag.kind === "equip-resize-zone") {
+      const delta = (dx + dy) / 2
+      const newBorder = Math.max(0, drag.startBorder + delta)
+      const newAccessSpace = Math.max(0, Math.round((drag.startFw + 2 * newBorder) ** 2 - drag.startFw ** 2))
+      onEquipResize?.(drag.itemId, { accessSpace: newAccessSpace })
     }
   }
 
@@ -629,15 +669,17 @@ export function SpacePlanner({
           const fpS = px(fw)
           const isDraggingZone = drag?.kind === "equip-zone" && drag.key === key
           const isDraggingFp = drag?.kind === "equip-fp" && drag.key === key
+          const isSel = selectedEquip === key
           const fSize = Math.max(7, Math.min(11, fpS / 3.5))
+          const hFillE = isDark ? "#1e293b" : "#fff"
 
           return (
-            <g key={key}>
+            <g key={key} onClick={() => setSelectedEquip(prev => prev === key ? null : key)}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clearS} height={clearS}
                 fill={color} fillOpacity={isDraggingZone ? 0.12 : 0.06}
-                stroke={color} strokeWidth={1} strokeDasharray="5 3" rx={3}
+                stroke={color} strokeWidth={isSel ? 1.5 : 1} strokeDasharray="5 3" rx={3}
                 style={{ cursor: isDraggingZone ? "grabbing" : "grab" }}
                 onPointerDown={e => startEquipZoneDrag(e, key)}
               />
@@ -662,6 +704,42 @@ export function SpacePlanner({
                   {unitSF} SF
                 </text>
               </g>
+
+              {/* Dimension callouts + resize handles when selected */}
+              {isSel && (
+                <g pointerEvents="none" fontSize={9} fontFamily="'Geist Mono',monospace" fill={dimColor}>
+                  {/* Footprint width below footprint */}
+                  <line x1={fpX} y1={fpY + fpS + 10} x2={fpX + fpS} y2={fpY + fpS + 10} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={fpX} y1={fpY + fpS + 7} x2={fpX} y2={fpY + fpS + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={fpX + fpS} y1={fpY + fpS + 7} x2={fpX + fpS} y2={fpY + fpS + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <text x={fpX + fpS / 2} y={fpY + fpS + 21} textAnchor="middle">{ftArch(fw)} fp</text>
+                  {/* Clearance zone width below clearance zone */}
+                  {border > 0 && <>
+                    <line x1={clearX} y1={clearY + clearS + 28} x2={clearX + clearS} y2={clearY + clearS + 28} stroke={dimColor} strokeWidth={0.7} />
+                    <line x1={clearX} y1={clearY + clearS + 25} x2={clearX} y2={clearY + clearS + 31} stroke={dimColor} strokeWidth={0.7} />
+                    <line x1={clearX + clearS} y1={clearY + clearS + 25} x2={clearX + clearS} y2={clearY + clearS + 31} stroke={dimColor} strokeWidth={0.7} />
+                    <text x={clearX + clearS / 2} y={clearY + clearS + 39} textAnchor="middle">{ftArch(fw + 2 * border)} clr</text>
+                  </>}
+                </g>
+              )}
+              {/* Footprint SE resize handle */}
+              {isSel && (
+                <rect
+                  x={fpX + fpS - 5} y={fpY + fpS - 5} width={10} height={10}
+                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={2}
+                  style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, fw) }}
+                />
+              )}
+              {/* Clearance zone SE resize handle */}
+              {isSel && border > 0 && (
+                <rect
+                  x={clearX + clearS - 5} y={clearY + clearS - 5} width={10} height={10}
+                  fill={hFillE} stroke={color} strokeWidth={1} rx={2}
+                  style={{ cursor: "nwse-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, fw, border) }}
+                />
+              )}
             </g>
           )
         })}

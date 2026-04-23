@@ -36,7 +36,7 @@ export function HeroMetrics({
       <div className={`rounded-xl border p-6 ${overOccupancy
         ? "border-destructive/50 bg-destructive/5"
         : "border-amber-500/25 bg-amber-500/5"}`}>
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-amber-500/60">
+        <p className="mb-1 font-mono text-xs uppercase tracking-widest text-amber-500/60">
           IBC Occupant Load
         </p>
         <div className="flex items-end gap-3">
@@ -72,7 +72,7 @@ export function HeroMetrics({
       <div className={`rounded-xl border p-6 ${farOverLimit
         ? "border-destructive/50 bg-destructive/5"
         : "border-cyan-500/25 bg-cyan-500/5"}`}>
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-cyan-500/60">
+        <p className="mb-1 font-mono text-xs uppercase tracking-widest text-cyan-500/60">
           Total Area
         </p>
         <div className="flex items-end gap-3">

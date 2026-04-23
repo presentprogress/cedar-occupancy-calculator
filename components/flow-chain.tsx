@@ -162,6 +162,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
             const excluded = space.excludeFromOccupancy ?? false
             const outside = space.outsideEnclosure ?? false
             const dim = excluded || outside || !space.isConditioned
+            const zeroOcc = excluded || outside
             return (
               <div key={space.id}
                 className={`grid grid-cols-[1fr,72px,80px,36px] items-center gap-x-2 px-3 py-1 ${dim ? "opacity-45" : ""}`}>
@@ -174,8 +175,8 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
                 </div>
                 <span className="text-right font-mono text-xs tabular-nums">{space.squareFeet.toLocaleString()}</span>
                 <span className="text-right font-mono text-[10px] text-muted-foreground">÷ {space.loadFactor} SF/p</span>
-                <span className={`text-right font-bold text-xs tabular-nums ${!dim ? "text-amber-500" : "text-muted-foreground"}`}>
-                  {dim ? 0 : space.occupancy}
+                <span className={`text-right font-bold text-xs tabular-nums ${!zeroOcc ? "text-amber-500" : "text-muted-foreground"}`}>
+                  {zeroOcc ? 0 : space.occupancy}
                 </span>
               </div>
             )

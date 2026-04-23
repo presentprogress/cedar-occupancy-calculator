@@ -151,7 +151,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy }: FlowCh
                   <span className="text-right font-mono text-xs tabular-nums">{sf.toLocaleString()}</span>
                   <span className="text-right font-mono text-[10px] text-muted-foreground">{infoOnly ? "" : `÷ ${DECK_FACTOR} SF/p`}</span>
                   <span className={`text-right font-bold text-xs tabular-nums ${infoOnly ? "text-muted-foreground" : "text-amber-500"}`}>
-                    {infoOnly ? "—" : occ}
+                    {occ}
                   </span>
                 </div>
               )

@@ -437,15 +437,8 @@ export default function OccupancyCalculator() {
           />
         </section>
 
-        {/* ── Flow chain → restrooms ── */}
-        <FlowChain
-          spaceResults={calc.spaceResults}
-          spaceLayouts={spaceLayouts}
-          totalOccupancy={calc.totalOccupancy}
-        />
-
-        {/* ── Editors ── */}
-        <section className="grid grid-cols-2 gap-4">
+        {/* ── Editors + Flow chain ── */}
+        <section className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
           <SpaceEditor
             spaces={spaces}
             onAdd={addSpace}
@@ -462,6 +455,11 @@ export default function OccupancyCalculator() {
             onAdd={addEquipment}
             onUpdate={updateEquipment}
             onRemove={removeEquipment}
+          />
+          <FlowChain
+            spaceResults={calc.spaceResults}
+            spaceLayouts={spaceLayouts}
+            totalOccupancy={calc.totalOccupancy}
           />
         </section>
 

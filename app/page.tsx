@@ -238,9 +238,12 @@ export default function OccupancyCalculator() {
     const unconditionedSF = spaces.filter(s => !s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
     const totalSF = conditionedSF + unconditionedSF
 
-    // Auto pool-deck occupancy — 3' setback ring around each water surface group
+    // Auto pool-deck occupancy — 3' setback ring around each water surface group.
+    // Skipped when user has manually defined Pool Deck spaces (avoids double-counting).
     const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
-    const waterSpacesForDeck = spaces.filter(s => waterTypes.has(s.type))
+    const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
+    // Only count water surfaces that are inside the enclosure
+    const waterSpacesForDeck = spaces.filter(s => waterTypes.has(s.type) && inBoundsSF(s))
     const seenW = new Set<string>()
     function rectUnionArea(ls: {x:number,y:number,w:number,h:number}[]) {
       let a = ls.reduce((s, l) => s + l.w * l.h, 0)
@@ -253,21 +256,23 @@ export default function OccupancyCalculator() {
       return a
     }
     let autoDeckOcc = 0
-    for (const s of waterSpacesForDeck) {
-      if (seenW.has(s.id)) continue
-      const grp = [s]; seenW.add(s.id)
-      const la = spaceLayouts[s.id]
-      for (const o of waterSpacesForDeck) {
-        if (seenW.has(o.id)) continue
-        const lb = spaceLayouts[o.id]
-        if (la && lb && rectsOverlap(la, lb)) { grp.push(o); seenW.add(o.id) }
+    if (!hasManualPoolDeck) {
+      for (const s of waterSpacesForDeck) {
+        if (seenW.has(s.id)) continue
+        const grp = [s]; seenW.add(s.id)
+        const la = spaceLayouts[s.id]
+        for (const o of waterSpacesForDeck) {
+          if (seenW.has(o.id)) continue
+          const lb = spaceLayouts[o.id]
+          if (la && lb && rectsOverlap(la, lb)) { grp.push(o); seenW.add(o.id) }
+        }
+        const ls = grp.map(g => spaceLayouts[g.id]).filter(Boolean)
+        if (!ls.length) continue
+        const waterArea = rectUnionArea(ls)
+        const expanded = ls.map(l => ({ x: l.x-3, y: l.y-3, w: l.w+6, h: l.h+6 }))
+        const deckSF = Math.max(0, Math.round(rectUnionArea(expanded) - waterArea))
+        autoDeckOcc += Math.ceil(deckSF / 15)
       }
-      const ls = grp.map(g => spaceLayouts[g.id]).filter(Boolean)
-      if (!ls.length) continue
-      const waterArea = rectUnionArea(ls)
-      const expanded = ls.map(l => ({ x: l.x-3, y: l.y-3, w: l.w+6, h: l.h+6 }))
-      const deckSF = Math.max(0, Math.round(rectUnionArea(expanded) - waterArea))
-      autoDeckOcc += Math.ceil(deckSF / 15)
     }
 
     const totalOccupancy = spaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc

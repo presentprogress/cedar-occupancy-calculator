@@ -2,6 +2,7 @@
 
 interface HeroMetricsProps {
   totalOccupancy: number
+  totalSF: number
   conditionedSF: number
   unconditionedSF: number
   unconditionedLimit: number
@@ -14,6 +15,7 @@ interface HeroMetricsProps {
 
 export function HeroMetrics({
   totalOccupancy,
+  totalSF,
   conditionedSF,
   unconditionedSF,
   unconditionedLimit,
@@ -66,16 +68,16 @@ export function HeroMetrics({
         )}
       </div>
 
-      {/* ── Conditioned SF ── */}
+      {/* ── Total / Conditioned SF ── */}
       <div className={`rounded-xl border p-6 ${farOverLimit
         ? "border-destructive/50 bg-destructive/5"
         : "border-cyan-500/25 bg-cyan-500/5"}`}>
         <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-cyan-500/60">
-          Conditioned Area
+          Total Area
         </p>
         <div className="flex items-end gap-3">
           <span className={`font-black tabular-nums leading-none ${farOverLimit ? "text-6xl text-destructive" : "text-6xl text-cyan-400"}`}>
-            {conditionedSF.toLocaleString()}
+            {totalSF.toLocaleString()}
           </span>
           <span className="mb-1 text-sm text-muted-foreground">sq ft</span>
         </div>
@@ -100,14 +102,15 @@ export function HeroMetrics({
         ) : (
           <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
             <div>
+              <span className="text-muted-foreground">Conditioned: </span>
+              <span className="font-medium">{conditionedSF.toLocaleString()} SF</span>
+            </div>
+            <div>
               <span className="text-muted-foreground">Unconditioned: </span>
               <span className={unconditionedOverLimit ? "font-semibold text-destructive" : "font-medium"}>
                 {unconditionedSF.toLocaleString()} SF
+                {unconditionedOverLimit && <span className="ml-1 text-destructive"> (limit {unconditionedLimit.toLocaleString()})</span>}
               </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Limit: </span>
-              <span className="font-medium">{unconditionedLimit.toLocaleString()} SF</span>
             </div>
           </div>
         )}

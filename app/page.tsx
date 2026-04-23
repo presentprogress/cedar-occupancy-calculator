@@ -229,8 +229,14 @@ export default function OccupancyCalculator() {
     })
 
     const totalEquipmentSpace = equipmentResults.reduce((s, e) => s + e.totalSpace, 0)
-    const conditionedSF = spaces.filter((s) => s.isConditioned).reduce((s, sp) => s + sp.squareFeet, 0)
-    const unconditionedSF = spaces.filter((s) => !s.isConditioned).reduce((s, sp) => s + sp.squareFeet, 0)
+    // SF counts spaces within enclosure regardless of excludeFromOccupancy
+    const inBoundsSF = (s: SpaceArea) => {
+      const layout = spaceLayouts[s.id]
+      return !enclosure || !layout || rectsOverlap(layout, enclosure)
+    }
+    const conditionedSF = spaces.filter(s => s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
+    const unconditionedSF = spaces.filter(s => !s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
+    const totalSF = conditionedSF + unconditionedSF
 
     // Auto pool-deck occupancy — 3' setback ring around each water surface group
     const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
@@ -269,7 +275,7 @@ export default function OccupancyCalculator() {
     const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
 
     return {
-      spaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalOccupancy, totalGymSF,
+      spaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, totalOccupancy, totalGymSF,
       equipmentFitsInGym: totalGymSF >= totalEquipmentSpace,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
       farOverLimit: farCap !== undefined && conditionedSF > farCap,
@@ -379,6 +385,7 @@ export default function OccupancyCalculator() {
         {/* ── Hero ── */}
         <HeroMetrics
           totalOccupancy={calc.totalOccupancy}
+          totalSF={calc.totalSF}
           conditionedSF={calc.conditionedSF}
           unconditionedSF={calc.unconditionedSF}
           unconditionedLimit={unconditionedLimit}

@@ -90,6 +90,14 @@ function getDims(item: EquipmentItem) {
     ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
   return { fw, border }
 }
+function getEquipDims(item: EquipmentItem, stored?: EquipSize): EquipSize & { borderX: number; borderY: number } {
+  if (stored) {
+    return { ...stored, borderX: (stored.clearW - stored.w) / 2, borderY: (stored.clearH - stored.h) / 2 }
+  }
+  const fw = Math.sqrt(item.footprint)
+  const border = item.accessSpace > 0 ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
+  return { w: fw, h: fw, clearW: fw + 2 * border, clearH: fw + 2 * border, borderX: border, borderY: border }
+}
 function ftArch(ft: number) {
   const w = Math.floor(ft), i = Math.round((ft - w) * 12)
   return i === 0 ? `${w}' - 0"` : `${w}' - ${i}"`
@@ -148,15 +156,18 @@ function mergeEquipDefaults(
   return out
 }
 
+// ─── Equipment size (non-square) ──────────────────────────────────────────────
+type EquipSize = { w: number; h: number; clearW: number; clearH: number }
+
 // ─── Drag state ───────────────────────────────────────────────────────────────
 type RoomHandle = "left" | "right" | "top" | "bottom" | "move"
 type Drag =
   | { kind: "room";             id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
   | { kind: "enclosure";        handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
   | { kind: "equip-zone";       key: IKey; startFt: EPos; startPos: EPos }
-  | { kind: "equip-fp";         key: IKey; startFt: EPos; startOff: EPos; border: number }
-  | { kind: "equip-resize-fp";  key: IKey; itemId: string; startFt: EPos; startFw: number }
-  | { kind: "equip-resize-zone"; key: IKey; itemId: string; startFt: EPos; startFw: number; startBorder: number }
+  | { kind: "equip-fp";         key: IKey; startFt: EPos; startOff: EPos; borderX: number; borderY: number }
+  | { kind: "equip-resize-fp";  key: IKey; itemId: string; handle: "right"|"bottom"; startFt: EPos; startW: number; startH: number }
+  | { kind: "equip-resize-zone"; key: IKey; itemId: string; handle: "right"|"bottom"; startFt: EPos; startClearW: number; startClearH: number; fpW: number; fpH: number }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface SpacePlannerProps {
@@ -165,18 +176,22 @@ interface SpacePlannerProps {
   spaceLayouts: Record<string, SpaceLayout>
   enclosure?: SpaceLayout
   storedEquipPositions?: Positions
+  storedEquipSizes?: Record<string, EquipSize>
   isDark: boolean
   onSpaceResize: (id: string, layout: SpaceLayout) => void
   onEnclosureChange: (e: SpaceLayout) => void
   onEquipPositionsChange: (p: Positions) => void
   onEquipResize?: (id: string, updates: Partial<EquipmentItem>) => void
+  onEquipSizeChange?: (id: string, size: EquipSize) => void
+  onDuplicate?: (spaceId: string) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export function SpacePlanner({
   spaces, equipment, spaceLayouts, enclosure,
-  storedEquipPositions, isDark,
-  onSpaceResize, onEnclosureChange, onEquipPositionsChange, onEquipResize,
+  storedEquipPositions, storedEquipSizes, isDark,
+  onSpaceResize, onEnclosureChange, onEquipPositionsChange,
+  onEquipResize, onEquipSizeChange, onDuplicate,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -191,6 +206,8 @@ export function SpacePlanner({
   // Footprint offsets within clearance zone: { dx, dy } from clearance top-left; default = border
   const [fpOffsets, setFpOffsets] = useState<Record<IKey, EPos>>({})
   const [localEnclosure, setLocalEnclosure] = useState(enclosure)
+  // Equipment sizes: keyed by item.id, stores independent W/H for non-square support
+  const [equipSizes, setEquipSizes] = useState<Record<string, EquipSize>>(storedEquipSizes ?? {})
 
   // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
@@ -207,6 +224,11 @@ export function SpacePlanner({
   if (enclosure !== prevEncl.current) {
     prevEncl.current = enclosure
     setLocalEnclosure(enclosure)
+  }
+  const prevEquipSizes = useRef(storedEquipSizes)
+  if (storedEquipSizes !== prevEquipSizes.current) {
+    prevEquipSizes.current = storedEquipSizes
+    setEquipSizes(storedEquipSizes ?? {})
   }
 
   // Colour helpers
@@ -296,23 +318,23 @@ export function SpacePlanner({
     setDrag({ kind: "equip-zone", key, startFt: toFt(e), startPos: { ...equipPos[key] } })
   }
 
-  function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, border: number) {
+  function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, borderX: number, borderY: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    const current = fpOffsets[key] ?? { x: border, y: border }
-    setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, border })
+    const current = fpOffsets[key] ?? { x: borderX, y: borderY }
+    setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, borderX, borderY })
   }
 
-  function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, startFw: number) {
+  function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startW: number, startH: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setDrag({ kind: "equip-resize-fp", key, itemId, startFt: toFt(e), startFw })
+    setDrag({ kind: "equip-resize-fp", key, itemId, handle, startFt: toFt(e), startW, startH })
   }
 
-  function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, startFw: number, startBorder: number) {
+  function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startClearW: number, startClearH: number, fpW: number, fpH: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setDrag({ kind: "equip-resize-zone", key, itemId, startFt: toFt(e), startFw, startBorder })
+    setDrag({ kind: "equip-resize-zone", key, itemId, handle, startFt: toFt(e), startClearW, startClearH, fpW, fpH })
   }
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -352,23 +374,31 @@ export function SpacePlanner({
         },
       }))
     } else if (drag.kind === "equip-fp") {
-      const border = drag.border
+      const { borderX, borderY } = drag
       setFpOffsets(prev => ({
         ...prev,
         [drag.key]: {
-          x: Math.max(0, Math.min(2 * border, drag.startOff.x + dx)),
-          y: Math.max(0, Math.min(2 * border, drag.startOff.y + dy)),
+          x: Math.max(0, Math.min(2 * borderX, drag.startOff.x + dx)),
+          y: Math.max(0, Math.min(2 * borderY, drag.startOff.y + dy)),
         },
       }))
     } else if (drag.kind === "equip-resize-fp") {
-      const delta = (dx + dy) / 2
-      const newFw = Math.max(2, drag.startFw + delta)
-      onEquipResize?.(drag.itemId, { footprint: Math.round(newFw * newFw) })
+      const { handle, startW, startH, itemId } = drag
+      const newW = handle === "right"  ? Math.max(2, startW + dx) : startW
+      const newH = handle === "bottom" ? Math.max(2, startH + dy) : startH
+      const current = equipSizes[itemId] ?? getEquipDims({ footprint: startW*startH, accessSpace: 0, id: itemId, name: "", quantity: 1 })
+      const borderX = (current.clearW - current.w) / 2
+      const borderY = (current.clearH - current.h) / 2
+      const newSize: EquipSize = { w: newW, h: newH, clearW: newW + 2 * borderX, clearH: newH + 2 * borderY }
+      setEquipSizes(prev => ({ ...prev, [itemId]: newSize }))
+      onEquipResize?.(itemId, { footprint: Math.round(newW * newH) })
     } else if (drag.kind === "equip-resize-zone") {
-      const delta = (dx + dy) / 2
-      const newBorder = Math.max(0, drag.startBorder + delta)
-      const newAccessSpace = Math.max(0, Math.round((drag.startFw + 2 * newBorder) ** 2 - drag.startFw ** 2))
-      onEquipResize?.(drag.itemId, { accessSpace: newAccessSpace })
+      const { handle, startClearW, startClearH, fpW, fpH, itemId } = drag
+      const newClearW = handle === "right"  ? Math.max(fpW, startClearW + dx) : startClearW
+      const newClearH = handle === "bottom" ? Math.max(fpH, startClearH + dy) : startClearH
+      const newSize: EquipSize = { w: fpW, h: fpH, clearW: newClearW, clearH: newClearH }
+      setEquipSizes(prev => ({ ...prev, [itemId]: newSize }))
+      onEquipResize?.(itemId, { accessSpace: Math.max(0, Math.round(newClearW * newClearH - fpW * fpH)) })
     }
   }
 
@@ -380,6 +410,9 @@ export function SpacePlanner({
       if (localEnclosure) onEnclosureChange(localEnclosure)
     } else if (drag.kind === "equip-zone") {
       onEquipPositionsChange(equipPos)
+    } else if (drag.kind === "equip-resize-fp" || drag.kind === "equip-resize-zone") {
+      const size = equipSizes[drag.itemId]
+      if (size) onEquipSizeChange?.(drag.itemId, size)
     }
     setDrag(null)
   }
@@ -653,31 +686,47 @@ export function SpacePlanner({
                   />
                 )
               })}
+
+              {/* Duplicate button — top-right corner of selected room */}
+              {isSel && onDuplicate && (
+                <g style={{ cursor: "pointer" }}
+                  onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
+                  <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
+                    fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
+                  <text x={rx + rw - 15} y={ry + 15} textAnchor="middle" fontSize={11}
+                    fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">
+                    ⧉
+                  </text>
+                </g>
+              )}
             </g>
           )
         })}
 
         {/* ── EQUIPMENT (on top of rooms) ── */}
-        {instances.map(({ key, item, fw, border, color, label, unitSF }) => {
+        {instances.map(({ key, item, color, label, unitSF }) => {
           const pos = equipPos[key]
           if (!pos) return null
-          const fpOff = fpOffsets[key] ?? { x: border, y: border }
-          const clearX = px(pos.x - border), clearY = px(pos.y - border)
-          const clearS = px(fw + 2 * border)
-          const fpX = px(pos.x - border + fpOff.x)
-          const fpY = px(pos.y - border + fpOff.y)
-          const fpS = px(fw)
+          const dims = getEquipDims(item, equipSizes[item.id])
+          const { w: fw, h: fh, clearW, clearH, borderX, borderY } = dims
+          const fpOff = fpOffsets[key] ?? { x: borderX, y: borderY }
+          const clearX = px(pos.x - borderX), clearY = px(pos.y - borderY)
+          const fpX = px(pos.x - borderX + fpOff.x)
+          const fpY = px(pos.y - borderY + fpOff.y)
+          const fpW = px(fw), fpH = px(fh)
+          const clW = px(clearW), clH = px(clearH)
           const isDraggingZone = drag?.kind === "equip-zone" && drag.key === key
           const isDraggingFp = drag?.kind === "equip-fp" && drag.key === key
           const isSel = selectedEquip === key
-          const fSize = Math.max(7, Math.min(11, fpS / 3.5))
+          const fSize = Math.max(7, Math.min(11, Math.min(fpW, fpH) / 3.5))
           const hFillE = isDark ? "#1e293b" : "#fff"
+          const hasClearance = clearW > fw || clearH > fh
 
           return (
             <g key={key} onClick={() => setSelectedEquip(prev => prev === key ? null : key)}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
-                x={clearX} y={clearY} width={clearS} height={clearS}
+                x={clearX} y={clearY} width={clW} height={clH}
                 fill={color} fillOpacity={isDraggingZone ? 0.12 : 0.06}
                 stroke={color} strokeWidth={isSel ? 1.5 : 1} strokeDasharray="5 3" rx={3}
                 style={{ cursor: isDraggingZone ? "grabbing" : "grab" }}
@@ -685,61 +734,77 @@ export function SpacePlanner({
               />
               {/* Footprint — drag within clearance zone */}
               <rect
-                x={fpX} y={fpY} width={fpS} height={fpS}
+                x={fpX} y={fpY} width={fpW} height={fpH}
                 fill={color} fillOpacity={isDraggingFp ? 0.55 : 0.22}
                 stroke={color} strokeWidth={1.5} rx={2}
                 style={{ cursor: isDraggingFp ? "grabbing" : "crosshair" }}
-                onPointerDown={e => startEquipFpDrag(e, key, border)}
+                onPointerDown={e => startEquipFpDrag(e, key, borderX, borderY)}
               />
               {/* Labels on footprint */}
               <g pointerEvents="none">
-                <text x={fpX + fpS / 2} y={fpY + fpS / 2 - fSize * 0.5}
+                <text x={fpX + fpW / 2} y={fpY + fpH / 2 - fSize * 0.5}
                   textAnchor="middle" fontSize={fSize}
                   fill={color} fontWeight="600" fontFamily="system-ui,sans-serif">
                   {label}
                 </text>
-                <text x={fpX + fpS / 2} y={fpY + fpS / 2 + fSize * 0.9}
+                <text x={fpX + fpW / 2} y={fpY + fpH / 2 + fSize * 0.9}
                   textAnchor="middle" fontSize={Math.max(6, fSize - 2)}
                   fill={color} opacity={0.75} fontFamily="'Geist Mono',monospace">
                   {unitSF} SF
                 </text>
               </g>
 
-              {/* Dimension callouts + resize handles when selected */}
+              {/* Dimension callouts when selected */}
               {isSel && (
                 <g pointerEvents="none" fontSize={9} fontFamily="'Geist Mono',monospace" fill={dimColor}>
-                  {/* Footprint width below footprint */}
-                  <line x1={fpX} y1={fpY + fpS + 10} x2={fpX + fpS} y2={fpY + fpS + 10} stroke={dimColor} strokeWidth={0.7} />
-                  <line x1={fpX} y1={fpY + fpS + 7} x2={fpX} y2={fpY + fpS + 13} stroke={dimColor} strokeWidth={0.7} />
-                  <line x1={fpX + fpS} y1={fpY + fpS + 7} x2={fpX + fpS} y2={fpY + fpS + 13} stroke={dimColor} strokeWidth={0.7} />
-                  <text x={fpX + fpS / 2} y={fpY + fpS + 21} textAnchor="middle">{ftArch(fw)} fp</text>
-                  {/* Clearance zone width below clearance zone */}
-                  {border > 0 && <>
-                    <line x1={clearX} y1={clearY + clearS + 28} x2={clearX + clearS} y2={clearY + clearS + 28} stroke={dimColor} strokeWidth={0.7} />
-                    <line x1={clearX} y1={clearY + clearS + 25} x2={clearX} y2={clearY + clearS + 31} stroke={dimColor} strokeWidth={0.7} />
-                    <line x1={clearX + clearS} y1={clearY + clearS + 25} x2={clearX + clearS} y2={clearY + clearS + 31} stroke={dimColor} strokeWidth={0.7} />
-                    <text x={clearX + clearS / 2} y={clearY + clearS + 39} textAnchor="middle">{ftArch(fw + 2 * border)} clr</text>
+                  {/* Footprint dims below footprint */}
+                  <line x1={fpX} y1={fpY + fpH + 10} x2={fpX + fpW} y2={fpY + fpH + 10} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={fpX} y1={fpY + fpH + 7} x2={fpX} y2={fpY + fpH + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={fpX + fpW} y1={fpY + fpH + 7} x2={fpX + fpW} y2={fpY + fpH + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <text x={fpX + fpW / 2} y={fpY + fpH + 21} textAnchor="middle">{ftArch(fw)}×{ftArch(fh)} fp</text>
+                  {/* Clearance dims below clearance zone */}
+                  {hasClearance && <>
+                    <line x1={clearX} y1={clearY + clH + 28} x2={clearX + clW} y2={clearY + clH + 28} stroke={dimColor} strokeWidth={0.7} />
+                    <line x1={clearX} y1={clearY + clH + 25} x2={clearX} y2={clearY + clH + 31} stroke={dimColor} strokeWidth={0.7} />
+                    <line x1={clearX + clW} y1={clearY + clH + 25} x2={clearX + clW} y2={clearY + clH + 31} stroke={dimColor} strokeWidth={0.7} />
+                    <text x={clearX + clW / 2} y={clearY + clH + 39} textAnchor="middle">{ftArch(clearW)}×{ftArch(clearH)} clr</text>
                   </>}
                 </g>
               )}
-              {/* Footprint SE resize handle */}
-              {isSel && (
+              {/* Footprint resize handles: right edge + bottom edge */}
+              {isSel && <>
                 <rect
-                  x={fpX + fpS - 5} y={fpY + fpS - 5} width={10} height={10}
-                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={2}
-                  style={{ cursor: "nwse-resize", pointerEvents: "all" }}
-                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, fw) }}
+                  x={fpX + fpW - 4} y={fpY + fpH / 2 - 13}
+                  width={8} height={26}
+                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                  style={{ cursor: "ew-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right", fw, fh) }}
                 />
-              )}
-              {/* Clearance zone SE resize handle */}
-              {isSel && border > 0 && (
                 <rect
-                  x={clearX + clearS - 5} y={clearY + clearS - 5} width={10} height={10}
-                  fill={hFillE} stroke={color} strokeWidth={1} rx={2}
-                  style={{ cursor: "nwse-resize", pointerEvents: "all" }}
-                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, fw, border) }}
+                  x={fpX + fpW / 2 - 13} y={fpY + fpH - 4}
+                  width={26} height={8}
+                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                  style={{ cursor: "ns-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) }}
                 />
-              )}
+              </>}
+              {/* Clearance zone resize handles: right edge + bottom edge */}
+              {isSel && hasClearance && <>
+                <rect
+                  x={clearX + clW - 4} y={clearY + clH / 2 - 13}
+                  width={8} height={26}
+                  fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                  style={{ cursor: "ew-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right", clearW, clearH, fw, fh) }}
+                />
+                <rect
+                  x={clearX + clW / 2 - 13} y={clearY + clH - 4}
+                  width={26} height={8}
+                  fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                  style={{ cursor: "ns-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) }}
+                />
+              </>}
             </g>
           )
         })}

@@ -34,9 +34,10 @@ interface OccupancyChartProps {
   segments: SpaceSegment[]
   autoDeckOcc: number
   totalOccupancy: number
+  className?: string
 }
 
-export function OccupancyChart({ segments, autoDeckOcc, totalOccupancy }: OccupancyChartProps) {
+export function OccupancyChart({ segments, autoDeckOcc, totalOccupancy, className = "" }: OccupancyChartProps) {
   if (totalOccupancy === 0) return null
 
   // Build display segments from non-zero contributors
@@ -87,13 +88,13 @@ export function OccupancyChart({ segments, autoDeckOcc, totalOccupancy }: Occupa
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60">
-      <div className="border-b border-border/60 px-4 py-3">
+    <div className={`overflow-hidden rounded-xl border border-border/60 flex flex-col ${className}`}>
+      <div className="border-b border-border/60 px-4 py-3 shrink-0">
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
           Occupancy Breakdown
         </p>
       </div>
-      <div className="flex items-center gap-6 px-4 py-4">
+      <div className="flex flex-1 items-center gap-6 px-4 py-4">
         {/* Donut */}
         <div className="shrink-0">
           <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>

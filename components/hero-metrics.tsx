@@ -11,6 +11,7 @@ interface HeroMetricsProps {
   farCap?: number
   farOverLimit: boolean
   remainingOccupantLoad?: number
+  className?: string
 }
 
 export function HeroMetrics({
@@ -24,13 +25,14 @@ export function HeroMetrics({
   farCap,
   farOverLimit,
   remainingOccupantLoad,
+  className = "",
 }: HeroMetricsProps) {
   const overOccupancy = remainingOccupantLoad !== undefined && remainingOccupantLoad < 0
   const occFrac = maxOccupants ? Math.min(1, totalOccupancy / maxOccupants) : null
   const condFrac = farCap ? Math.min(1, conditionedSF / farCap) : null
 
   return (
-    <section className="grid grid-cols-2 gap-4">
+    <section className={`grid grid-cols-2 gap-4 ${className}`}>
 
       {/* ── Occupant Load ── */}
       <div className={`rounded-xl border p-6 ${overOccupancy

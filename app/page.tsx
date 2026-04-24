@@ -192,6 +192,20 @@ export default function OccupancyCalculator() {
 
   // ── Calculations ─────────────────────────────────────────────────────────────
   const calc = useMemo(() => {
+    // Inclusion-exclusion union area for a list of rectangles
+    function rectUnionArea(ls: {x:number,y:number,w:number,h:number}[]) {
+      let a = ls.reduce((s, l) => s + l.w * l.h, 0)
+      for (let i = 0; i < ls.length; i++)
+        for (let j = i+1; j < ls.length; j++) {
+          const [p, q] = [ls[i], ls[j]]
+          a -= Math.max(0, Math.min(p.x+p.w, q.x+q.w) - Math.max(p.x, q.x)) *
+               Math.max(0, Math.min(p.y+p.h, q.y+q.h) - Math.max(p.y, q.y))
+        }
+      return a
+    }
+
+    const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
+
     const spaceResults = spaces.map((s) => {
       const layout = spaceLayouts[s.id]
       const inBounds = !enclosure || !layout || rectsOverlap(layout, enclosure)
@@ -204,16 +218,46 @@ export default function OccupancyCalculator() {
       }
     })
 
+    // Correct overlapping water surface occupancies to use union area (prevents double-counting)
+    const activeWater = spaceResults.filter(s => waterTypes.has(s.type) && !s.outsideEnclosure && !s.excludeFromOccupancy)
+    const seenWaterIds = new Set<string>()
+    const waterOccFix = new Map<string, number>()
+    for (const s of activeWater) {
+      if (seenWaterIds.has(s.id)) continue
+      const grp = [s]; seenWaterIds.add(s.id)
+      const la = spaceLayouts[s.id]
+      for (const o of activeWater) {
+        if (seenWaterIds.has(o.id)) continue
+        const lb = spaceLayouts[o.id]
+        if (la && lb && rectsOverlap(la, lb)) { grp.push(o); seenWaterIds.add(o.id) }
+      }
+      if (grp.length > 1) {
+        const ls = grp.map(g => spaceLayouts[g.id]).filter(Boolean)
+        const unionSF = ls.length === grp.length ? rectUnionArea(ls) : grp.reduce((a, g) => a + g.squareFeet, 0)
+        const groupOcc = Math.ceil(unionSF / 50)
+        grp.forEach((g, i) => waterOccFix.set(g.id, i === 0 ? groupOcc : 0))
+      }
+    }
+    const finalSpaceResults = waterOccFix.size === 0
+      ? spaceResults
+      : spaceResults.map(s => waterOccFix.has(s.id) ? { ...s, occupancy: waterOccFix.get(s.id)! } : s)
+
     // Compute shared clearance from canvas positions (intersection of clearance zones)
     const positions = appState.plannerLayout?.equipmentPositions ?? {}
+    const equipSizes = appState.plannerLayout?.equipmentSizes ?? {}
     const computedShared: Record<string, number> = {}
     for (const item of equipment) {
-      const fw = Math.sqrt(item.footprint)
-      const border = item.accessSpace > 0 ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
+      const stored = equipSizes[item.id]
+      const fw = stored?.w ?? Math.sqrt(item.footprint)
+      const fh = stored?.h ?? Math.sqrt(item.footprint)
+      const clearW = stored?.clearW ?? (fw + (item.accessSpace > 0 ? (Math.sqrt(fw*fw + item.accessSpace) - fw) / 2 : 0) * 2)
+      const clearH = stored?.clearH ?? (fh + (item.accessSpace > 0 ? (Math.sqrt(fh*fh + item.accessSpace) - fh) / 2 : 0) * 2)
+      const borderX = (clearW - fw) / 2
+      const borderY = (clearH - fh) / 2
       const zones = Array.from({ length: item.quantity }, (_, i) => {
         const pos = positions[`${item.id}:${i}`]
         if (!pos) return null
-        return { x: pos.x - border, y: pos.y - border, w: fw + 2 * border, h: fw + 2 * border }
+        return { x: pos.x - borderX, y: pos.y - borderY, w: clearW, h: clearH }
       }).filter(Boolean) as { x: number; y: number; w: number; h: number }[]
       let shared = 0
       for (let i = 0; i < zones.length; i++) {
@@ -245,21 +289,9 @@ export default function OccupancyCalculator() {
 
     // Auto pool-deck occupancy — 3' setback ring around each water surface group.
     // Skipped when user has manually defined Pool Deck spaces (avoids double-counting).
-    const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
     const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
-    // Only count water surfaces that are inside the enclosure
     const waterSpacesForDeck = spaces.filter(s => waterTypes.has(s.type) && inBoundsSF(s))
     const seenW = new Set<string>()
-    function rectUnionArea(ls: {x:number,y:number,w:number,h:number}[]) {
-      let a = ls.reduce((s, l) => s + l.w * l.h, 0)
-      for (let i = 0; i < ls.length; i++)
-        for (let j = i+1; j < ls.length; j++) {
-          const [p, q] = [ls[i], ls[j]]
-          a -= Math.max(0, Math.min(p.x+p.w, q.x+q.w) - Math.max(p.x, q.x)) *
-               Math.max(0, Math.min(p.y+p.h, q.y+q.h) - Math.max(p.y, q.y))
-        }
-      return a
-    }
     let autoDeckOcc = 0
     if (!hasManualPoolDeck) {
       for (const s of waterSpacesForDeck) {
@@ -280,12 +312,12 @@ export default function OccupancyCalculator() {
       }
     }
 
-    const totalOccupancy = spaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc
+    const totalOccupancy = finalSpaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc
     const gymTypes = ["Exercise Room (Equipment)", "Exercise Room (Concentrated)"]
     const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
 
     return {
-      spaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, totalOccupancy, totalGymSF,
+      spaceResults: finalSpaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, totalOccupancy, totalGymSF,
       autoDeckOcc,
       equipmentFitsInGym: totalGymSF >= totalEquipmentSpace,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
@@ -377,7 +409,30 @@ export default function OccupancyCalculator() {
           </div>
         </section>
 
-        {/* ── Plumbing Requirements (horizontal) ── */}
+        {/* ── Hero + Chart (primary KPIs first) ── */}
+        <div className="flex gap-4 items-stretch">
+          <HeroMetrics
+            className="flex-1 min-w-0"
+            totalOccupancy={calc.totalOccupancy}
+            totalSF={calc.totalSF}
+            conditionedSF={calc.conditionedSF}
+            unconditionedSF={calc.unconditionedSF}
+            unconditionedLimit={unconditionedLimit}
+            unconditionedOverLimit={calc.unconditionedOverLimit}
+            maxOccupants={maxOccupants}
+            farCap={farCap}
+            farOverLimit={calc.farOverLimit}
+            remainingOccupantLoad={calc.remainingOccupantLoad}
+          />
+          <OccupancyChart
+            className="w-72 shrink-0"
+            segments={calc.spaceResults}
+            autoDeckOcc={calc.autoDeckOcc}
+            totalOccupancy={calc.totalOccupancy}
+          />
+        </div>
+
+        {/* ── Plumbing Requirements ── */}
         <section className="grid grid-cols-4 gap-3">
           {[
             { label: "Total WCs", value: calc.wc.total, sub: "IBC Table 2902.1" },
@@ -392,27 +447,6 @@ export default function OccupancyCalculator() {
             </div>
           ))}
         </section>
-
-        {/* ── Hero ── */}
-        <HeroMetrics
-          totalOccupancy={calc.totalOccupancy}
-          totalSF={calc.totalSF}
-          conditionedSF={calc.conditionedSF}
-          unconditionedSF={calc.unconditionedSF}
-          unconditionedLimit={unconditionedLimit}
-          unconditionedOverLimit={calc.unconditionedOverLimit}
-          maxOccupants={maxOccupants}
-          farCap={farCap}
-          farOverLimit={calc.farOverLimit}
-          remainingOccupantLoad={calc.remainingOccupantLoad}
-        />
-
-        {/* ── Occupancy Chart ── */}
-        <OccupancyChart
-          segments={calc.spaceResults}
-          autoDeckOcc={calc.autoDeckOcc}
-          totalOccupancy={calc.totalOccupancy}
-        />
 
         {/* ── Canvas (primary — drag handles set SF) ── */}
         <section className="overflow-hidden rounded-xl border border-border/60">
@@ -438,21 +472,43 @@ export default function OccupancyCalculator() {
             spaceLayouts={spaceLayouts}
             enclosure={enclosure}
             storedEquipPositions={appState.plannerLayout?.equipmentPositions}
+            storedEquipSizes={appState.plannerLayout?.equipmentSizes}
             isDark={isDark}
             onSpaceResize={handleSpaceResize}
             onEnclosureChange={handleEnclosureChange}
             onEquipPositionsChange={(positions) =>
               setAppState((prev) => ({
                 ...prev,
-                plannerLayout: { equipmentPositions: positions },
+                plannerLayout: { ...prev.plannerLayout, equipmentPositions: positions },
               }), { skipHistory: true })
             }
             onEquipResize={updateEquipment}
+            onEquipSizeChange={(id, size) =>
+              setAppState((prev) => ({
+                ...prev,
+                equipment: prev.equipment.map(e => e.id === id
+                  ? { ...e, footprint: Math.round(size.w * size.h), accessSpace: Math.max(0, Math.round(size.clearW * size.clearH - size.w * size.h)) }
+                  : e),
+                plannerLayout: {
+                  ...prev.plannerLayout,
+                  equipmentPositions: prev.plannerLayout?.equipmentPositions ?? {},
+                  equipmentSizes: { ...prev.plannerLayout?.equipmentSizes, [id]: size },
+                },
+              }), { skipHistory: false })
+            }
+            onDuplicate={duplicateSpace}
           />
         </section>
 
-        {/* ── Editors + Flow chain ── */}
-        <section className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
+        {/* ── Totals | Area Management | Equipment Manager ── */}
+        <section className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1.3fr)] gap-4 items-start">
+          <FlowChain
+            spaceResults={calc.spaceResults}
+            spaceLayouts={spaceLayouts}
+            totalOccupancy={calc.totalOccupancy}
+            farCap={farCap}
+            unconditionedLimit={unconditionedLimit}
+          />
           <SpaceEditor
             spaces={spaces}
             onAdd={addSpace}
@@ -469,13 +525,6 @@ export default function OccupancyCalculator() {
             onAdd={addEquipment}
             onUpdate={updateEquipment}
             onRemove={removeEquipment}
-          />
-          <FlowChain
-            spaceResults={calc.spaceResults}
-            spaceLayouts={spaceLayouts}
-            totalOccupancy={calc.totalOccupancy}
-            farCap={farCap}
-            unconditionedLimit={unconditionedLimit}
           />
         </section>
 

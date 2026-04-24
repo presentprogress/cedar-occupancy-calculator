@@ -102,6 +102,15 @@ function ftArch(ft: number) {
   const w = Math.floor(ft), i = Math.round((ft - w) * 12)
   return i === 0 ? `${w}' - 0"` : `${w}' - ${i}"`
 }
+function rectUnionAreaFt(rects: {x:number,y:number,w:number,h:number}[]): number {
+  let a = rects.reduce((s,r) => s + r.w*r.h, 0)
+  for (let i=0; i<rects.length; i++) for (let j=i+1; j<rects.length; j++) {
+    const p=rects[i], q=rects[j]
+    a -= Math.max(0, Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x)) *
+         Math.max(0, Math.min(p.y+p.h,q.y+q.h)-Math.max(p.y,q.y))
+  }
+  return a
+}
 
 // ─── Equipment default layout within gym zone ─────────────────────────────────
 type IKey = string
@@ -257,22 +266,36 @@ export function SpacePlanner({
     [equipment]
   )
 
-  // Merged water pairs
-  const mergedWaterPairs = useMemo(() => {
+  // Overlapping water groups (connected components via BFS)
+  const waterGroups = useMemo(() => {
     const waterSpaces = spaces.filter(s => isWater(s.type))
-    const merged = new Set<string>()
-    for (let i = 0; i < waterSpaces.length; i++) {
-      for (let j = i + 1; j < waterSpaces.length; j++) {
-        const a = localLayouts[waterSpaces[i].id]
-        const b = localLayouts[waterSpaces[j].id]
-        if (a && b && rectsOverlap(a, b)) {
-          merged.add(waterSpaces[i].id)
-          merged.add(waterSpaces[j].id)
+    const seen = new Set<string>()
+    const groups: SpaceArea[][] = []
+    for (const s of waterSpaces) {
+      if (seen.has(s.id)) continue
+      const la = localLayouts[s.id]
+      if (!la) { seen.add(s.id); continue }
+      const group = [s]; seen.add(s.id)
+      let qi = 0
+      while (qi < group.length) {
+        const lc = localLayouts[group[qi++].id]
+        if (!lc) continue
+        for (const other of waterSpaces) {
+          if (seen.has(other.id)) continue
+          const lo = localLayouts[other.id]
+          if (lo && rectsOverlap(lc, lo)) { group.push(other); seen.add(other.id) }
         }
       }
+      if (group.length > 1) groups.push(group)
     }
-    return merged
+    return groups
   }, [spaces, localLayouts])
+
+  const mergedWaterIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const g of waterGroups) for (const s of g) ids.add(s.id)
+    return ids
+  }, [waterGroups])
 
   // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
@@ -582,33 +605,23 @@ export function SpacePlanner({
           const isSel = selected === space.id
           const sf = Math.round(layout.w * layout.h)
           const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
-          const isWaterSpace = isWater(space.type)
-          const isMerged = mergedWaterPairs.has(space.id)
+          const isMerged = mergedWaterIds.has(space.id)
 
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
             <g key={space.id}>
-              {/* Room body */}
+              {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
                 fill={colors.fill}
-                stroke={isMerged ? colors.stroke : colors.stroke}
-                strokeWidth={isSel ? 2.5 : isMerged ? 2 : 1.5}
+                stroke={colors.stroke}
+                strokeWidth={isSel ? 2.5 : isMerged ? 0 : 1.5}
                 strokeDasharray={space.isConditioned ? undefined : "6 3"}
                 rx={3}
                 style={{ cursor: "grab" }}
                 onPointerDown={e => startRoomDrag(e, space.id, "move")}
               />
-
-              {/* Merged water glow */}
-              {isMerged && (
-                <rect
-                  x={rx} y={ry} width={rw} height={rh}
-                  fill={colors.stroke} fillOpacity={0.12}
-                  rx={3} pointerEvents="none"
-                />
-              )}
 
               {/* Conditioned accent bar */}
               {space.isConditioned && (
@@ -616,7 +629,7 @@ export function SpacePlanner({
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels */}
+              {/* Labels — hide SF and occ for merged water; group overlay shows combined values */}
               {rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
                   <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
@@ -625,7 +638,7 @@ export function SpacePlanner({
                     fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
                     {rw > 80 ? space.name : space.name.split(" ")[0]}
                   </text>
-                  {rh > 44 && rw > 40 && (
+                  {!isMerged && rh > 44 && rw > 40 && (
                     <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
                       textAnchor="middle"
                       fontSize={Math.min(10, Math.max(7, rw / 14))}
@@ -633,13 +646,15 @@ export function SpacePlanner({
                       {sf.toLocaleString()} SF
                     </text>
                   )}
-                  <text x={cx2} y={ry + rh - 14}
-                    textAnchor="middle"
-                    fontSize={Math.min(16, Math.max(9, rw / 5.5))}
-                    fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
-                    {occ}
-                  </text>
-                  {rw > 36 && (
+                  {!isMerged && (
+                    <text x={cx2} y={ry + rh - 14}
+                      textAnchor="middle"
+                      fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                      fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                      {occ}
+                    </text>
+                  )}
+                  {!isMerged && rw > 36 && (
                     <text x={cx2} y={ry + rh - 4}
                       textAnchor="middle" fontSize={6.5}
                       fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
@@ -690,6 +705,7 @@ export function SpacePlanner({
               {/* Duplicate button — top-right corner of selected room */}
               {isSel && onDuplicate && (
                 <g style={{ cursor: "pointer" }}
+                  onPointerDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
                   <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
                     fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
@@ -699,6 +715,49 @@ export function SpacePlanner({
                   </text>
                 </g>
               )}
+            </g>
+          )
+        })}
+
+        {/* ── Water group combined outlines + combined label ── */}
+        {waterGroups.map((group, gi) => {
+          const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
+          if (ls.length < 2) return null
+          const colors = palette[group[0].type] ?? fb
+          const maskBase = `wg${gi}`
+          const unionSF = Math.round(rectUnionAreaFt(ls))
+          const unionOcc = Math.ceil(unionSF / 50)
+          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
+          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          const labelX = px((bx0+bx1)/2), labelY = px((by0+by1)/2)
+          return (
+            <g key={`wg-${gi}`} pointerEvents="none">
+              <defs>
+                {ls.map((_, ri) => (
+                  <mask key={ri} id={`${maskBase}-m${ri}`}>
+                    <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="black"
+                        x={px(l.x)-2} y={px(l.y)-2}
+                        width={px(l.w)+4} height={px(l.h)+4}/>
+                    ))}
+                  </mask>
+                ))}
+              </defs>
+              {ls.map((l, ri) => (
+                <rect key={ri}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
+                  mask={`url(#${maskBase}-m${ri})`}/>
+              ))}
+              {/* Combined SF + occ label centred on the bounding box */}
+              <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
+                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+                  {unionSF.toLocaleString()} SF
+                </tspan>
+                <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
+                <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
+              </text>
             </g>
           )
         })}

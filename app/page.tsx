@@ -135,7 +135,7 @@ export default function OccupancyCalculator() {
         spaceLayouts: {
           ...prev.spaceLayouts,
           [id]: srcLayout
-            ? { ...srcLayout, x: srcLayout.x + srcLayout.w + 2 }
+            ? { ...srcLayout, x: srcLayout.x + 4, y: srcLayout.y + 4 }
             : { x: 4, y: 4, w: 10, h: 10 },
         },
       }

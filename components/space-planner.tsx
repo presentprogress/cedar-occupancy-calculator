@@ -623,8 +623,8 @@ export function SpacePlanner({
                 onPointerDown={e => startRoomDrag(e, space.id, "move")}
               />
 
-              {/* Conditioned accent bar */}
-              {space.isConditioned && (
+              {/* Conditioned accent bar — hidden for merged water (group overlay handles boundary) */}
+              {space.isConditioned && !isMerged && (
                 <rect x={rx + 3} y={ry} width={rw - 6} height={3}
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
@@ -729,12 +729,18 @@ export function SpacePlanner({
           const unionOcc = Math.ceil(unionSF / 50)
           const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
           const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
-          const labelX = px((bx0+bx1)/2), labelY = px((by0+by1)/2)
+          // Centre label on the intersection (overlap) of all rects; fall back to bounding box
+          const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
+          const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
+          const hasOverlap = ox0 < ox1 && oy0 < oy1
+          const labelX = px(hasOverlap ? (ox0+ox1)/2 : (bx0+bx1)/2)
+          const labelY = px(hasOverlap ? (oy0+oy1)/2 : (by0+by1)/2)
           return (
             <g key={`wg-${gi}`} pointerEvents="none">
               <defs>
                 {ls.map((_, ri) => (
-                  <mask key={ri} id={`${maskBase}-m${ri}`}>
+                  <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
+                    {/* Outer stroke mask: white everywhere except other rects (+ 2px buffer) */}
                     <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
                     {ls.filter((_,j) => j !== ri).map((l, j) => (
                       <rect key={j} fill="black"
@@ -743,14 +749,34 @@ export function SpacePlanner({
                     ))}
                   </mask>
                 ))}
+                {ls.map((_, ri) => (
+                  <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
+                    {/* Inner dash mask: black everywhere except inside the other rects */}
+                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="white"
+                        x={px(l.x)} y={px(l.y)}
+                        width={px(l.w)} height={px(l.h)}/>
+                    ))}
+                  </mask>
+                ))}
               </defs>
+              {/* Outer boundary strokes — masked to hide the internal edges */}
               {ls.map((l, ri) => (
-                <rect key={ri}
+                <rect key={`outer-${ri}`}
                   x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
                   fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
                   mask={`url(#${maskBase}-m${ri})`}/>
               ))}
-              {/* Combined SF + occ label centred on the bounding box */}
+              {/* Inner dashes — show only inside the overlap zone, lightly distinguish bodies */}
+              {ls.map((l, ri) => (
+                <rect key={`dash-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  strokeDasharray="6 5" opacity={0.28} rx={3}
+                  mask={`url(#${maskBase}-im${ri})`}/>
+              ))}
+              {/* Combined SF + occ label centred on the overlap zone */}
               <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
                 <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
                   {unionSF.toLocaleString()} SF

@@ -49,9 +49,10 @@ export function SpaceEditor({ spaces, onAdd, onDuplicate, onUpdate, onRemove }: 
                 />
               </div>
 
-              {/* Row 2: Calc preview + toggles */}
-              <div className="flex items-center gap-3">
-                <p className="flex-1 font-mono text-[10px] text-muted-foreground">
+              {/* Rows 2–3: 2-column grid — left: calc+actions, right: toggles+type */}
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                {/* Row 2 left: calc preview */}
+                <p className="font-mono text-[10px] text-muted-foreground self-center">
                   {excluded ? (
                     <span className="text-destructive/70">excluded from calc</span>
                   ) : (
@@ -63,33 +64,52 @@ export function SpaceEditor({ spaces, onAdd, onDuplicate, onUpdate, onRemove }: 
                     </>
                   )}
                 </p>
-                <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
-                  <Switch
-                    checked={space.isConditioned}
-                    onCheckedChange={(v) => onUpdate(space.id, { isConditioned: v })}
-                    className="scale-75 origin-left"
-                  />
-                  <span className="text-xs text-muted-foreground">Conditioned</span>
-                </label>
-                <label className={`flex items-center gap-1.5 cursor-pointer shrink-0 ${excluded ? "text-destructive" : ""}`}>
-                  <Switch
-                    checked={excluded}
-                    onCheckedChange={(v) => onUpdate(space.id, { excludeFromOccupancy: v })}
-                    className="scale-75 origin-left"
-                  />
-                  <span className={`text-xs ${excluded ? "text-destructive" : "text-muted-foreground"}`}>
-                    Excl. from Occ
-                  </span>
-                </label>
-              </div>
-
-              {/* Row 3: Type select + actions */}
-              <div className="flex items-center gap-1.5">
+                {/* Row 2 right: toggles */}
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <Switch
+                      checked={space.isConditioned}
+                      onCheckedChange={(v) => onUpdate(space.id, { isConditioned: v })}
+                      className="scale-75 origin-left"
+                    />
+                    <span className="text-xs text-muted-foreground">Conditioned</span>
+                  </label>
+                  <label className={`flex items-center gap-1.5 cursor-pointer ${excluded ? "text-destructive" : ""}`}>
+                    <Switch
+                      checked={excluded}
+                      onCheckedChange={(v) => onUpdate(space.id, { excludeFromOccupancy: v })}
+                      className="scale-75 origin-left"
+                    />
+                    <span className={`text-xs ${excluded ? "text-destructive" : "text-muted-foreground"}`}>
+                      Excl. from Occ
+                    </span>
+                  </label>
+                </div>
+                {/* Row 3 left: duplicate + delete, right-aligned */}
+                <div className="flex items-center justify-end gap-0.5">
+                  <Button
+                    variant="ghost" size="icon"
+                    className="h-7 w-7"
+                    onClick={() => onDuplicate(space.id)}
+                    title="Duplicate"
+                  >
+                    <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                  <Button
+                    variant="ghost" size="icon"
+                    className="h-7 w-7"
+                    onClick={() => onRemove(space.id)}
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </Button>
+                </div>
+                {/* Row 3 right: type select */}
                 <Select
                   value={space.type}
                   onValueChange={(v) => onUpdate(space.id, { type: v as SpaceType })}
                 >
-                  <SelectTrigger className="h-7 flex-1 text-xs">
+                  <SelectTrigger className="h-7 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -100,22 +120,6 @@ export function SpaceEditor({ spaces, onAdd, onDuplicate, onUpdate, onRemove }: 
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  variant="ghost" size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => onDuplicate(space.id)}
-                  title="Duplicate"
-                >
-                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
-                <Button
-                  variant="ghost" size="icon"
-                  className="h-7 w-7 shrink-0"
-                  onClick={() => onRemove(space.id)}
-                  title="Delete"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                </Button>
               </div>
             </div>
           )

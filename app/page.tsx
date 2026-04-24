@@ -412,7 +412,7 @@ export default function OccupancyCalculator() {
         {/* ── Hero + Chart (primary KPIs first) ── */}
         <div className="flex gap-4 items-stretch">
           <HeroMetrics
-            className="flex-1 min-w-0"
+            className="basis-[48%] shrink-0 min-w-0"
             totalOccupancy={calc.totalOccupancy}
             totalSF={calc.totalSF}
             conditionedSF={calc.conditionedSF}
@@ -425,7 +425,7 @@ export default function OccupancyCalculator() {
             remainingOccupantLoad={calc.remainingOccupantLoad}
           />
           <OccupancyChart
-            className="w-72 shrink-0"
+            className="flex-1 min-w-0"
             segments={calc.spaceResults}
             autoDeckOcc={calc.autoDeckOcc}
             totalOccupancy={calc.totalOccupancy}

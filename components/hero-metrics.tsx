@@ -11,6 +11,7 @@ interface HeroMetricsProps {
   farCap?: number
   farOverLimit: boolean
   remainingOccupantLoad?: number
+  className?: string
 }
 
 export function HeroMetrics({
@@ -24,23 +25,24 @@ export function HeroMetrics({
   farCap,
   farOverLimit,
   remainingOccupantLoad,
+  className = "",
 }: HeroMetricsProps) {
   const overOccupancy = remainingOccupantLoad !== undefined && remainingOccupantLoad < 0
   const occFrac = maxOccupants ? Math.min(1, totalOccupancy / maxOccupants) : null
   const condFrac = farCap ? Math.min(1, conditionedSF / farCap) : null
 
   return (
-    <section className="grid grid-cols-2 gap-4">
+    <section className={`grid grid-cols-2 gap-4 ${className}`}>
 
       {/* ── Occupant Load ── */}
-      <div className={`rounded-xl border p-6 ${overOccupancy
+      <div className={`rounded-xl border p-4 ${overOccupancy
         ? "border-destructive/50 bg-destructive/5"
         : "border-amber-500/25 bg-amber-500/5"}`}>
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-amber-500/60">
+        <p className="mb-1 font-mono text-xs uppercase tracking-widest text-amber-500/60">
           IBC Occupant Load
         </p>
         <div className="flex items-end gap-3">
-          <span className={`font-black tabular-nums leading-none ${overOccupancy ? "text-6xl text-destructive" : "text-6xl text-amber-400"}`}>
+          <span className={`font-black tabular-nums leading-none ${overOccupancy ? "text-5xl text-destructive" : "text-5xl text-amber-400"}`}>
             {totalOccupancy}
           </span>
           <span className="mb-1 text-sm text-muted-foreground">persons</span>
@@ -69,14 +71,14 @@ export function HeroMetrics({
       </div>
 
       {/* ── Total / Conditioned SF ── */}
-      <div className={`rounded-xl border p-6 ${farOverLimit
+      <div className={`rounded-xl border p-4 ${farOverLimit
         ? "border-destructive/50 bg-destructive/5"
         : "border-cyan-500/25 bg-cyan-500/5"}`}>
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-cyan-500/60">
+        <p className="mb-1 font-mono text-xs uppercase tracking-widest text-cyan-500/60">
           Total Area
         </p>
         <div className="flex items-end gap-3">
-          <span className={`font-black tabular-nums leading-none ${farOverLimit ? "text-6xl text-destructive" : "text-6xl text-cyan-400"}`}>
+          <span className={`font-black tabular-nums leading-none ${farOverLimit ? "text-5xl text-destructive" : "text-5xl text-cyan-400"}`}>
             {totalSF.toLocaleString()}
           </span>
           <span className="mb-1 text-sm text-muted-foreground">sq ft</span>

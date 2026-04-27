@@ -31,10 +31,10 @@ export function EquipmentEditor({
     <div className="overflow-hidden rounded-xl border border-border/60">
       <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Gym Equipment
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            Equipment Manager
           </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {totalEquipmentSpace} SF total
             {totalGymSF > 0 && (
               <span className={equipmentFitsInGym ? " text-emerald-400" : " text-destructive"}>
@@ -78,22 +78,22 @@ export function EquipmentEditor({
               <div className="grid grid-cols-4 gap-2">
                 {/* Equip SF */}
                 <div>
-                  <Label className="text-[10px] text-muted-foreground">Equip SF</Label>
+                  <Label className="text-xs text-muted-foreground">Equip SF</Label>
                   <Input type="number" value={item.footprint} min={0}
                     onChange={(e) => onUpdate(item.id, { footprint: Number(e.target.value) })}
                     className="mt-0.5 h-7 text-xs" />
                 </div>
                 {/* Access SF */}
                 <div>
-                  <Label className="text-[10px] text-muted-foreground">Access SF</Label>
+                  <Label className="text-xs text-muted-foreground">Access SF</Label>
                   <Input type="number" value={item.accessSpace} min={0}
                     onChange={(e) => onUpdate(item.id, { accessSpace: Number(e.target.value) })}
                     className="mt-0.5 h-7 text-xs" />
                 </div>
                 {/* Shared — read-only, canvas-derived */}
                 <div>
-                  <Label className="text-[10px] text-muted-foreground">
-                    Shared <span className="text-[8px] opacity-60">(canvas)</span>
+                  <Label className="text-xs text-muted-foreground">
+                    Shared <span className="text-[10px] opacity-60">(canvas)</span>
                   </Label>
                   <div className="mt-0.5 flex h-7 items-center rounded-md border border-border/40 bg-muted/30 px-2">
                     <span className="font-mono text-xs tabular-nums text-muted-foreground">{shared}</span>
@@ -101,7 +101,7 @@ export function EquipmentEditor({
                 </div>
                 {/* Qty */}
                 <div>
-                  <Label className="text-[10px] text-muted-foreground">Qty</Label>
+                  <Label className="text-xs text-muted-foreground">Qty</Label>
                   <Input type="number" value={item.quantity} min={1}
                     onChange={(e) => onUpdate(item.id, { quantity: Number(e.target.value) })}
                     className="mt-0.5 h-7 text-xs" />

@@ -14,18 +14,27 @@ const SETBACK = 3       // ft pool-deck setback
 const EQUIP_GAP = 1.5   // ft gap between equipment items in default layout
 
 // ─── Room colours ─────────────────────────────────────────────────────────────
+// Color families map to occupancy/use category:
+//   Water surfaces (all 50 SF/p) → blue
+//   Exercise → green   Thermal → red   Deck/lounge → amber/orange
+//   Support (restroom, locker, storage, circulation) → neutral slate
 type CS = { fill: string; stroke: string; text: string }
 const ROOM_COLORS: Record<string, CS> = {
+  // Water — blue family (same calc method)
   "Swimming Pool (Water Surface)":  { fill: "#dbeafe", stroke: "#2563eb", text: "#1e40af" },
+  "Spa/Hot Tub (Water Surface)":    { fill: "#dbeafe", stroke: "#1d4ed8", text: "#1e3a8a" },
+  "Cold Plunge (Water Surface)":    { fill: "#e0f9ff", stroke: "#0284c7", text: "#0c4a6e" },
+  // Deck
   "Pool Deck":                      { fill: "#fef3c7", stroke: "#d97706", text: "#92400e" },
+  // Exercise
   "Exercise Room (Equipment)":      { fill: "#dcfce7", stroke: "#16a34a", text: "#15803d" },
   "Exercise Room (Concentrated)":   { fill: "#d1fae5", stroke: "#059669", text: "#065f46" },
+  // Thermal
   "Sauna/Steam Room":               { fill: "#fee2e2", stroke: "#dc2626", text: "#991b1b" },
-  "Cold Plunge (Water Surface)":    { fill: "#e0f2fe", stroke: "#0284c7", text: "#0c4a6e" },
-  "Spa/Hot Tub (Water Surface)":    { fill: "#ede9fe", stroke: "#7c3aed", text: "#4c1d95" },
-  "Locker Room":                    { fill: "#e0f2fe", stroke: "#0369a1", text: "#0c4a6e" },
+  // Support — neutral slate (no direct occupancy category)
+  "Locker Room":                    { fill: "#f1f5f9", stroke: "#64748b", text: "#374151" },
   "Lobby/Reception":                { fill: "#f0fdf4", stroke: "#15803d", text: "#14532d" },
-  "Restroom":                       { fill: "#f5f3ff", stroke: "#7c3aed", text: "#4c1d95" },
+  "Restroom":                       { fill: "#f1f5f9", stroke: "#64748b", text: "#374151" },
   "Circulation":                    { fill: "#f3f4f6", stroke: "#6b7280", text: "#374151" },
   "Lounge/Seating Area":            { fill: "#fff7ed", stroke: "#c2410c", text: "#7c2d12" },
   "Storage":                        { fill: "#f9fafb", stroke: "#9ca3af", text: "#6b7280" },
@@ -33,16 +42,21 @@ const ROOM_COLORS: Record<string, CS> = {
   "Office":                         { fill: "#fffbeb", stroke: "#b45309", text: "#78350f" },
 }
 const ROOM_COLORS_DARK: Record<string, CS> = {
+  // Water — blue family
   "Swimming Pool (Water Surface)":  { fill: "#0b1e3d", stroke: "#3b82f6", text: "#93c5fd" },
+  "Spa/Hot Tub (Water Surface)":    { fill: "#0c1f3a", stroke: "#60a5fa", text: "#bfdbfe" },
+  "Cold Plunge (Water Surface)":    { fill: "#051a2e", stroke: "#38bdf8", text: "#7dd3fc" },
+  // Deck
   "Pool Deck":                      { fill: "#271800", stroke: "#d97706", text: "#fbbf24" },
+  // Exercise
   "Exercise Room (Equipment)":      { fill: "#0a1e0e", stroke: "#16a34a", text: "#86efac" },
   "Exercise Room (Concentrated)":   { fill: "#0a1e11", stroke: "#059669", text: "#6ee7b7" },
+  // Thermal
   "Sauna/Steam Room":               { fill: "#280a0a", stroke: "#dc2626", text: "#fca5a5" },
-  "Cold Plunge (Water Surface)":    { fill: "#091c2d", stroke: "#0284c7", text: "#7dd3fc" },
-  "Spa/Hot Tub (Water Surface)":    { fill: "#18092a", stroke: "#7c3aed", text: "#c4b5fd" },
-  "Locker Room":                    { fill: "#091827", stroke: "#0369a1", text: "#7dd3fc" },
+  // Support — neutral slate
+  "Locker Room":                    { fill: "#111827", stroke: "#475569", text: "#94a3b8" },
   "Lobby/Reception":                { fill: "#091a0e", stroke: "#15803d", text: "#86efac" },
-  "Restroom":                       { fill: "#13092a", stroke: "#7c3aed", text: "#c4b5fd" },
+  "Restroom":                       { fill: "#111827", stroke: "#475569", text: "#94a3b8" },
   "Circulation":                    { fill: "#141414", stroke: "#4b5563", text: "#9ca3af" },
   "Lounge/Seating Area":            { fill: "#271200", stroke: "#c2410c", text: "#fb923c" },
   "Storage":                        { fill: "#101010", stroke: "#374151", text: "#6b7280" },
@@ -50,11 +64,12 @@ const ROOM_COLORS_DARK: Record<string, CS> = {
   "Office":                         { fill: "#1a1300", stroke: "#b45309", text: "#fbbf24" },
 }
 const FB_L: CS = { fill: "#f3f4f6", stroke: "#6b7280", text: "#374151" }
-const FB_D: CS = { fill: "#141414", stroke: "#374151", text: "#9ca3af" }
+const FB_D: CS = { fill: "#1e293b", stroke: "#475569", text: "#94a3b8" }
 
+// Equipment palette — neutral slate: equipment is layout/SF, not an occupancy category
 const EQUIP_PALETTE = [
-  "#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6",
-  "#ec4899","#14b8a6","#f97316","#84cc16","#06b6d4",
+  "#64748b","#78716c","#6b7280","#52525b","#57534e",
+  "#475569","#71717a","#4b5563","#737373","#9ca3af",
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,9 +90,26 @@ function getDims(item: EquipmentItem) {
     ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
   return { fw, border }
 }
+function getEquipDims(item: EquipmentItem, stored?: EquipSize): EquipSize & { borderX: number; borderY: number } {
+  if (stored) {
+    return { ...stored, borderX: (stored.clearW - stored.w) / 2, borderY: (stored.clearH - stored.h) / 2 }
+  }
+  const fw = Math.sqrt(item.footprint)
+  const border = item.accessSpace > 0 ? (Math.sqrt(fw * fw + item.accessSpace) - fw) / 2 : 0
+  return { w: fw, h: fw, clearW: fw + 2 * border, clearH: fw + 2 * border, borderX: border, borderY: border }
+}
 function ftArch(ft: number) {
   const w = Math.floor(ft), i = Math.round((ft - w) * 12)
   return i === 0 ? `${w}' - 0"` : `${w}' - ${i}"`
+}
+function rectUnionAreaFt(rects: {x:number,y:number,w:number,h:number}[]): number {
+  let a = rects.reduce((s,r) => s + r.w*r.h, 0)
+  for (let i=0; i<rects.length; i++) for (let j=i+1; j<rects.length; j++) {
+    const p=rects[i], q=rects[j]
+    a -= Math.max(0, Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x)) *
+         Math.max(0, Math.min(p.y+p.h,q.y+q.h)-Math.max(p.y,q.y))
+  }
+  return a
 }
 
 // ─── Equipment default layout within gym zone ─────────────────────────────────
@@ -133,13 +165,18 @@ function mergeEquipDefaults(
   return out
 }
 
+// ─── Equipment size (non-square) ──────────────────────────────────────────────
+type EquipSize = { w: number; h: number; clearW: number; clearH: number }
+
 // ─── Drag state ───────────────────────────────────────────────────────────────
 type RoomHandle = "left" | "right" | "top" | "bottom" | "move"
 type Drag =
-  | { kind: "room";      id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
-  | { kind: "enclosure"; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
-  | { kind: "equip-zone"; key: IKey; startFt: EPos; startPos: EPos }
-  | { kind: "equip-fp";  key: IKey; startFt: EPos; startOff: EPos; border: number }
+  | { kind: "room";             id: string; handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "enclosure";        handle: RoomHandle; startFt: EPos; startLayout: SpaceLayout }
+  | { kind: "equip-zone";       key: IKey; startFt: EPos; startPos: EPos }
+  | { kind: "equip-fp";         key: IKey; startFt: EPos; startOff: EPos; borderX: number; borderY: number }
+  | { kind: "equip-resize-fp";  key: IKey; itemId: string; handle: "right"|"bottom"; startFt: EPos; startW: number; startH: number }
+  | { kind: "equip-resize-zone"; key: IKey; itemId: string; handle: "right"|"bottom"; startFt: EPos; startClearW: number; startClearH: number; fpW: number; fpH: number }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface SpacePlannerProps {
@@ -148,21 +185,27 @@ interface SpacePlannerProps {
   spaceLayouts: Record<string, SpaceLayout>
   enclosure?: SpaceLayout
   storedEquipPositions?: Positions
+  storedEquipSizes?: Record<string, EquipSize>
   isDark: boolean
   onSpaceResize: (id: string, layout: SpaceLayout) => void
   onEnclosureChange: (e: SpaceLayout) => void
   onEquipPositionsChange: (p: Positions) => void
+  onEquipResize?: (id: string, updates: Partial<EquipmentItem>) => void
+  onEquipSizeChange?: (id: string, size: EquipSize) => void
+  onDuplicate?: (spaceId: string) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export function SpacePlanner({
   spaces, equipment, spaceLayouts, enclosure,
-  storedEquipPositions, isDark,
+  storedEquipPositions, storedEquipSizes, isDark,
   onSpaceResize, onEnclosureChange, onEquipPositionsChange,
+  onEquipResize, onEquipSizeChange, onDuplicate,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
 
   // Local mutable copies of layouts and equip positions
   const [localLayouts, setLocalLayouts] = useState(spaceLayouts)
@@ -172,6 +215,8 @@ export function SpacePlanner({
   // Footprint offsets within clearance zone: { dx, dy } from clearance top-left; default = border
   const [fpOffsets, setFpOffsets] = useState<Record<IKey, EPos>>({})
   const [localEnclosure, setLocalEnclosure] = useState(enclosure)
+  // Equipment sizes: keyed by item.id, stores independent W/H for non-square support
+  const [equipSizes, setEquipSizes] = useState<Record<string, EquipSize>>(storedEquipSizes ?? {})
 
   // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
@@ -189,12 +234,17 @@ export function SpacePlanner({
     prevEncl.current = enclosure
     setLocalEnclosure(enclosure)
   }
+  const prevEquipSizes = useRef(storedEquipSizes)
+  if (storedEquipSizes !== prevEquipSizes.current) {
+    prevEquipSizes.current = storedEquipSizes
+    setEquipSizes(storedEquipSizes ?? {})
+  }
 
   // Colour helpers
   const palette = isDark ? ROOM_COLORS_DARK : ROOM_COLORS
   const fb = isDark ? FB_D : FB_L
-  const gridColor = isDark ? "#131b2e" : "#e5e7eb"
-  const bgColor = isDark ? "#080c17" : "#f8fafc"
+  const gridColor = isDark ? "#1a2540" : "#e5e7eb"
+  const bgColor = isDark ? "#0d1525" : "#f8fafc"
   const dimColor = isDark ? "#4b5563" : "#9ca3af"
   const occColor = isDark ? "#f59e0b" : "#d97706"
 
@@ -216,22 +266,36 @@ export function SpacePlanner({
     [equipment]
   )
 
-  // Merged water pairs
-  const mergedWaterPairs = useMemo(() => {
+  // Overlapping water groups (connected components via BFS)
+  const waterGroups = useMemo(() => {
     const waterSpaces = spaces.filter(s => isWater(s.type))
-    const merged = new Set<string>()
-    for (let i = 0; i < waterSpaces.length; i++) {
-      for (let j = i + 1; j < waterSpaces.length; j++) {
-        const a = localLayouts[waterSpaces[i].id]
-        const b = localLayouts[waterSpaces[j].id]
-        if (a && b && rectsOverlap(a, b)) {
-          merged.add(waterSpaces[i].id)
-          merged.add(waterSpaces[j].id)
+    const seen = new Set<string>()
+    const groups: SpaceArea[][] = []
+    for (const s of waterSpaces) {
+      if (seen.has(s.id)) continue
+      const la = localLayouts[s.id]
+      if (!la) { seen.add(s.id); continue }
+      const group = [s]; seen.add(s.id)
+      let qi = 0
+      while (qi < group.length) {
+        const lc = localLayouts[group[qi++].id]
+        if (!lc) continue
+        for (const other of waterSpaces) {
+          if (seen.has(other.id)) continue
+          const lo = localLayouts[other.id]
+          if (lo && rectsOverlap(lc, lo)) { group.push(other); seen.add(other.id) }
         }
       }
+      if (group.length > 1) groups.push(group)
     }
-    return merged
+    return groups
   }, [spaces, localLayouts])
+
+  const mergedWaterIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const g of waterGroups) for (const s of g) ids.add(s.id)
+    return ids
+  }, [waterGroups])
 
   // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
@@ -277,11 +341,23 @@ export function SpacePlanner({
     setDrag({ kind: "equip-zone", key, startFt: toFt(e), startPos: { ...equipPos[key] } })
   }
 
-  function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, border: number) {
+  function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, borderX: number, borderY: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    const current = fpOffsets[key] ?? { x: border, y: border }
-    setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, border })
+    const current = fpOffsets[key] ?? { x: borderX, y: borderY }
+    setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, borderX, borderY })
+  }
+
+  function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startW: number, startH: number) {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ kind: "equip-resize-fp", key, itemId, handle, startFt: toFt(e), startW, startH })
+  }
+
+  function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startClearW: number, startClearH: number, fpW: number, fpH: number) {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    setDrag({ kind: "equip-resize-zone", key, itemId, handle, startFt: toFt(e), startClearW, startClearH, fpW, fpH })
   }
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -321,14 +397,31 @@ export function SpacePlanner({
         },
       }))
     } else if (drag.kind === "equip-fp") {
-      const border = drag.border
+      const { borderX, borderY } = drag
       setFpOffsets(prev => ({
         ...prev,
         [drag.key]: {
-          x: Math.max(0, Math.min(2 * border, drag.startOff.x + dx)),
-          y: Math.max(0, Math.min(2 * border, drag.startOff.y + dy)),
+          x: Math.max(0, Math.min(2 * borderX, drag.startOff.x + dx)),
+          y: Math.max(0, Math.min(2 * borderY, drag.startOff.y + dy)),
         },
       }))
+    } else if (drag.kind === "equip-resize-fp") {
+      const { handle, startW, startH, itemId } = drag
+      const newW = handle === "right"  ? Math.max(2, startW + dx) : startW
+      const newH = handle === "bottom" ? Math.max(2, startH + dy) : startH
+      const current = equipSizes[itemId] ?? getEquipDims({ footprint: startW*startH, accessSpace: 0, id: itemId, name: "", quantity: 1 })
+      const borderX = (current.clearW - current.w) / 2
+      const borderY = (current.clearH - current.h) / 2
+      const newSize: EquipSize = { w: newW, h: newH, clearW: newW + 2 * borderX, clearH: newH + 2 * borderY }
+      setEquipSizes(prev => ({ ...prev, [itemId]: newSize }))
+      onEquipResize?.(itemId, { footprint: Math.round(newW * newH) })
+    } else if (drag.kind === "equip-resize-zone") {
+      const { handle, startClearW, startClearH, fpW, fpH, itemId } = drag
+      const newClearW = handle === "right"  ? Math.max(fpW, startClearW + dx) : startClearW
+      const newClearH = handle === "bottom" ? Math.max(fpH, startClearH + dy) : startClearH
+      const newSize: EquipSize = { w: fpW, h: fpH, clearW: newClearW, clearH: newClearH }
+      setEquipSizes(prev => ({ ...prev, [itemId]: newSize }))
+      onEquipResize?.(itemId, { accessSpace: Math.max(0, Math.round(newClearW * newClearH - fpW * fpH)) })
     }
   }
 
@@ -340,6 +433,9 @@ export function SpacePlanner({
       if (localEnclosure) onEnclosureChange(localEnclosure)
     } else if (drag.kind === "equip-zone") {
       onEquipPositionsChange(equipPos)
+    } else if (drag.kind === "equip-resize-fp" || drag.kind === "equip-resize-zone") {
+      const size = equipSizes[drag.itemId]
+      if (size) onEquipSizeChange?.(drag.itemId, size)
     }
     setDrag(null)
   }
@@ -526,41 +622,31 @@ export function SpacePlanner({
           const isSel = selected === space.id
           const sf = Math.round(layout.w * layout.h)
           const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
-          const isWaterSpace = isWater(space.type)
-          const isMerged = mergedWaterPairs.has(space.id)
+          const isMerged = mergedWaterIds.has(space.id)
 
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
             <g key={space.id}>
-              {/* Room body */}
+              {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
                 fill={colors.fill}
-                stroke={isMerged ? colors.stroke : colors.stroke}
-                strokeWidth={isSel ? 2.5 : isMerged ? 2 : 1.5}
+                stroke={colors.stroke}
+                strokeWidth={isSel ? 2.5 : isMerged ? 0 : 1.5}
                 strokeDasharray={space.isConditioned ? undefined : "6 3"}
                 rx={3}
                 style={{ cursor: "grab" }}
                 onPointerDown={e => startRoomDrag(e, space.id, "move")}
               />
 
-              {/* Merged water glow */}
-              {isMerged && (
-                <rect
-                  x={rx} y={ry} width={rw} height={rh}
-                  fill={colors.stroke} fillOpacity={0.12}
-                  rx={3} pointerEvents="none"
-                />
-              )}
-
-              {/* Conditioned accent bar */}
-              {space.isConditioned && (
+              {/* Conditioned accent bar — hidden for merged water (group overlay handles boundary) */}
+              {space.isConditioned && !isMerged && (
                 <rect x={rx + 3} y={ry} width={rw - 6} height={3}
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels */}
+              {/* Labels — hide SF and occ for merged water; group overlay shows combined values */}
               {rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
                   <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
@@ -569,7 +655,7 @@ export function SpacePlanner({
                     fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
                     {rw > 80 ? space.name : space.name.split(" ")[0]}
                   </text>
-                  {rh > 44 && rw > 40 && (
+                  {!isMerged && rh > 44 && rw > 40 && (
                     <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
                       textAnchor="middle"
                       fontSize={Math.min(10, Math.max(7, rw / 14))}
@@ -577,13 +663,15 @@ export function SpacePlanner({
                       {sf.toLocaleString()} SF
                     </text>
                   )}
-                  <text x={cx2} y={ry + rh - 14}
-                    textAnchor="middle"
-                    fontSize={Math.min(16, Math.max(9, rw / 5.5))}
-                    fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
-                    {occ}
-                  </text>
-                  {rw > 36 && (
+                  {!isMerged && (
+                    <text x={cx2} y={ry + rh - 14}
+                      textAnchor="middle"
+                      fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                      fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                      {occ}
+                    </text>
+                  )}
+                  {!isMerged && rw > 36 && (
                     <text x={cx2} y={ry + rh - 4}
                       textAnchor="middle" fontSize={6.5}
                       fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
@@ -630,55 +718,195 @@ export function SpacePlanner({
                   />
                 )
               })}
+
+              {/* Duplicate button — top-right corner of selected room */}
+              {isSel && onDuplicate && (
+                <g style={{ cursor: "pointer" }}
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
+                  <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
+                    fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
+                  <text x={rx + rw - 15} y={ry + 15} textAnchor="middle" fontSize={11}
+                    fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">
+                    ⧉
+                  </text>
+                </g>
+              )}
+            </g>
+          )
+        })}
+
+        {/* ── Water group combined outlines + combined label ── */}
+        {waterGroups.map((group, gi) => {
+          const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
+          if (ls.length < 2) return null
+          const colors = palette[group[0].type] ?? fb
+          const maskBase = `wg${gi}`
+          const unionSF = Math.round(rectUnionAreaFt(ls))
+          const unionOcc = Math.ceil(unionSF / 50)
+          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
+          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          // Centre label on the intersection (overlap) of all rects; fall back to bounding box
+          const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
+          const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
+          const hasOverlap = ox0 < ox1 && oy0 < oy1
+          const labelX = px(hasOverlap ? (ox0+ox1)/2 : (bx0+bx1)/2)
+          const labelY = px(hasOverlap ? (oy0+oy1)/2 : (by0+by1)/2)
+          return (
+            <g key={`wg-${gi}`} pointerEvents="none">
+              <defs>
+                {ls.map((_, ri) => (
+                  <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
+                    {/* Outer stroke mask: white everywhere except other rects (+ 2px buffer) */}
+                    <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="black"
+                        x={px(l.x)-2} y={px(l.y)-2}
+                        width={px(l.w)+4} height={px(l.h)+4}/>
+                    ))}
+                  </mask>
+                ))}
+                {ls.map((_, ri) => (
+                  <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
+                    {/* Inner dash mask: black everywhere except inside the other rects */}
+                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="white"
+                        x={px(l.x)} y={px(l.y)}
+                        width={px(l.w)} height={px(l.h)}/>
+                    ))}
+                  </mask>
+                ))}
+              </defs>
+              {/* Outer boundary strokes — masked to hide the internal edges */}
+              {ls.map((l, ri) => (
+                <rect key={`outer-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
+                  mask={`url(#${maskBase}-m${ri})`}/>
+              ))}
+              {/* Inner dashes — show only inside the overlap zone, lightly distinguish bodies */}
+              {ls.map((l, ri) => (
+                <rect key={`dash-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  strokeDasharray="6 5" opacity={0.28} rx={3}
+                  mask={`url(#${maskBase}-im${ri})`}/>
+              ))}
+              {/* Combined SF + occ label centred on the overlap zone */}
+              <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
+                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+                  {unionSF.toLocaleString()} SF
+                </tspan>
+                <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
+                <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
+              </text>
             </g>
           )
         })}
 
         {/* ── EQUIPMENT (on top of rooms) ── */}
-        {instances.map(({ key, item, fw, border, color, label, unitSF }) => {
+        {instances.map(({ key, item, color, label, unitSF }) => {
           const pos = equipPos[key]
           if (!pos) return null
-          const fpOff = fpOffsets[key] ?? { x: border, y: border }
-          const clearX = px(pos.x - border), clearY = px(pos.y - border)
-          const clearS = px(fw + 2 * border)
-          const fpX = px(pos.x - border + fpOff.x)
-          const fpY = px(pos.y - border + fpOff.y)
-          const fpS = px(fw)
+          const dims = getEquipDims(item, equipSizes[item.id])
+          const { w: fw, h: fh, clearW, clearH, borderX, borderY } = dims
+          const fpOff = fpOffsets[key] ?? { x: borderX, y: borderY }
+          const clearX = px(pos.x - borderX), clearY = px(pos.y - borderY)
+          const fpX = px(pos.x - borderX + fpOff.x)
+          const fpY = px(pos.y - borderY + fpOff.y)
+          const fpW = px(fw), fpH = px(fh)
+          const clW = px(clearW), clH = px(clearH)
           const isDraggingZone = drag?.kind === "equip-zone" && drag.key === key
           const isDraggingFp = drag?.kind === "equip-fp" && drag.key === key
-          const fSize = Math.max(7, Math.min(11, fpS / 3.5))
+          const isSel = selectedEquip === key
+          const fSize = Math.max(7, Math.min(11, Math.min(fpW, fpH) / 3.5))
+          const hFillE = isDark ? "#1e293b" : "#fff"
+          const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key}>
+            <g key={key} onClick={() => setSelectedEquip(prev => prev === key ? null : key)}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
-                x={clearX} y={clearY} width={clearS} height={clearS}
+                x={clearX} y={clearY} width={clW} height={clH}
                 fill={color} fillOpacity={isDraggingZone ? 0.12 : 0.06}
-                stroke={color} strokeWidth={1} strokeDasharray="5 3" rx={3}
+                stroke={color} strokeWidth={isSel ? 1.5 : 1} strokeDasharray="5 3" rx={3}
                 style={{ cursor: isDraggingZone ? "grabbing" : "grab" }}
                 onPointerDown={e => startEquipZoneDrag(e, key)}
               />
               {/* Footprint — drag within clearance zone */}
               <rect
-                x={fpX} y={fpY} width={fpS} height={fpS}
+                x={fpX} y={fpY} width={fpW} height={fpH}
                 fill={color} fillOpacity={isDraggingFp ? 0.55 : 0.22}
                 stroke={color} strokeWidth={1.5} rx={2}
                 style={{ cursor: isDraggingFp ? "grabbing" : "crosshair" }}
-                onPointerDown={e => startEquipFpDrag(e, key, border)}
+                onPointerDown={e => startEquipFpDrag(e, key, borderX, borderY)}
               />
               {/* Labels on footprint */}
               <g pointerEvents="none">
-                <text x={fpX + fpS / 2} y={fpY + fpS / 2 - fSize * 0.5}
+                <text x={fpX + fpW / 2} y={fpY + fpH / 2 - fSize * 0.5}
                   textAnchor="middle" fontSize={fSize}
                   fill={color} fontWeight="600" fontFamily="system-ui,sans-serif">
                   {label}
                 </text>
-                <text x={fpX + fpS / 2} y={fpY + fpS / 2 + fSize * 0.9}
+                <text x={fpX + fpW / 2} y={fpY + fpH / 2 + fSize * 0.9}
                   textAnchor="middle" fontSize={Math.max(6, fSize - 2)}
                   fill={color} opacity={0.75} fontFamily="'Geist Mono',monospace">
                   {unitSF} SF
                 </text>
               </g>
+
+              {/* Dimension callouts when selected */}
+              {isSel && (
+                <g pointerEvents="none" fontSize={9} fontFamily="'Geist Mono',monospace" fill={dimColor}>
+                  {/* Footprint dims below footprint */}
+                  <line x1={fpX} y1={fpY + fpH + 10} x2={fpX + fpW} y2={fpY + fpH + 10} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={fpX} y1={fpY + fpH + 7} x2={fpX} y2={fpY + fpH + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <line x1={fpX + fpW} y1={fpY + fpH + 7} x2={fpX + fpW} y2={fpY + fpH + 13} stroke={dimColor} strokeWidth={0.7} />
+                  <text x={fpX + fpW / 2} y={fpY + fpH + 21} textAnchor="middle">{ftArch(fw)}×{ftArch(fh)} fp</text>
+                  {/* Clearance dims below clearance zone */}
+                  {hasClearance && <>
+                    <line x1={clearX} y1={clearY + clH + 28} x2={clearX + clW} y2={clearY + clH + 28} stroke={dimColor} strokeWidth={0.7} />
+                    <line x1={clearX} y1={clearY + clH + 25} x2={clearX} y2={clearY + clH + 31} stroke={dimColor} strokeWidth={0.7} />
+                    <line x1={clearX + clW} y1={clearY + clH + 25} x2={clearX + clW} y2={clearY + clH + 31} stroke={dimColor} strokeWidth={0.7} />
+                    <text x={clearX + clW / 2} y={clearY + clH + 39} textAnchor="middle">{ftArch(clearW)}×{ftArch(clearH)} clr</text>
+                  </>}
+                </g>
+              )}
+              {/* Footprint resize handles: right edge + bottom edge */}
+              {isSel && <>
+                <rect
+                  x={fpX + fpW - 4} y={fpY + fpH / 2 - 13}
+                  width={8} height={26}
+                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                  style={{ cursor: "ew-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right", fw, fh) }}
+                />
+                <rect
+                  x={fpX + fpW / 2 - 13} y={fpY + fpH - 4}
+                  width={26} height={8}
+                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                  style={{ cursor: "ns-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) }}
+                />
+              </>}
+              {/* Clearance zone resize handles: right edge + bottom edge */}
+              {isSel && hasClearance && <>
+                <rect
+                  x={clearX + clW - 4} y={clearY + clH / 2 - 13}
+                  width={8} height={26}
+                  fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                  style={{ cursor: "ew-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right", clearW, clearH, fw, fh) }}
+                />
+                <rect
+                  x={clearX + clW / 2 - 13} y={clearY + clH - 4}
+                  width={26} height={8}
+                  fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                  style={{ cursor: "ns-resize", pointerEvents: "all" }}
+                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) }}
+                />
+              </>}
             </g>
           )
         })}

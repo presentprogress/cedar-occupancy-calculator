@@ -57,6 +57,7 @@ export interface AppState {
   enclosure?: SpaceLayout
   plannerLayout?: {
     equipmentPositions: Record<string, { x: number; y: number }>
+    equipmentSizes?: Record<string, { w: number; h: number; clearW: number; clearH: number }>
   }
 }
 

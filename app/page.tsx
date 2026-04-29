@@ -287,6 +287,20 @@ export default function OccupancyCalculator() {
     const unconditionedSF = spaces.filter(s => !s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
     const totalSF = conditionedSF + unconditionedSF
 
+    // Circulation baseline — enclosure area minus the intersection of every in-bounds room with the enclosure
+    const enclosureArea = enclosure ? Math.round(enclosure.w * enclosure.h) : 0
+    const roomsInEnclosureSF = enclosure
+      ? spaces.reduce((a, s) => {
+          const l = spaceLayouts[s.id]
+          if (!l || !rectsOverlap(l, enclosure)) return a
+          const iw = Math.max(0, Math.min(l.x + l.w, enclosure.x + enclosure.w) - Math.max(l.x, enclosure.x))
+          const ih = Math.max(0, Math.min(l.y + l.h, enclosure.y + enclosure.h) - Math.max(l.y, enclosure.y))
+          return a + Math.round(iw * ih)
+        }, 0)
+      : 0
+    const circulationSF = Math.max(0, enclosureArea - roomsInEnclosureSF)
+    const circulationOcc = circulationSF > 0 ? Math.ceil(circulationSF / IBC_LOAD_FACTORS["Circulation"]) : 0
+
     // Auto pool-deck occupancy — 3' setback ring around each water surface group.
     // Skipped when user has manually defined Pool Deck spaces (avoids double-counting).
     const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
@@ -312,13 +326,13 @@ export default function OccupancyCalculator() {
       }
     }
 
-    const totalOccupancy = finalSpaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc
+    const totalOccupancy = finalSpaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc + circulationOcc
     const gymTypes = ["Exercise Room (Equipment)", "Exercise Room (Concentrated)"]
     const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
 
     return {
       spaceResults: finalSpaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, totalOccupancy, totalGymSF,
-      autoDeckOcc,
+      autoDeckOcc, circulationSF, circulationOcc,
       equipmentFitsInGym: totalGymSF >= totalEquipmentSpace,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
       farOverLimit: farCap !== undefined && conditionedSF > farCap,

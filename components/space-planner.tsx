@@ -309,7 +309,7 @@ export function SpacePlanner({
       maxY = Math.max(maxY, p.y + 12)
     }
     if (localEnclosure) {
-      maxX = Math.max(maxX, localEnclosure.x + localEnclosure.w + 4)
+      maxX = Math.max(maxX, localEnclosure.x + localEnclosure.w + 12)
       maxY = Math.max(maxY, localEnclosure.y + localEnclosure.h + 4)
     }
     return { svgW: maxX * PX, svgH: maxY * PX }
@@ -486,12 +486,12 @@ export function SpacePlanner({
         <rect width={svgW} height={svgH} fill={bgColor} />
         <rect width={svgW} height={svgH} fill="url(#g10)" />
 
-        {/* ── Enclosure background fill ── */}
+        {/* ── Enclosure background fill — Circulation baseline at z=0 ── */}
         {localEnclosure && (
           <rect
             x={px(localEnclosure.x)} y={px(localEnclosure.y)}
             width={px(localEnclosure.w)} height={px(localEnclosure.h)}
-            fill={isDark ? "#0f1623" : "#f0f4f8"} fillOpacity={0.55}
+            fill={isDark ? "#141414" : "#f3f4f6"} fillOpacity={0.7}
             stroke="none" rx={4} pointerEvents="none"
           />
         )}
@@ -970,6 +970,53 @@ export function SpacePlanner({
                   transform={`rotate(-90 ${ex + ew + 28} ${ecy})`}>{ftArch(localEnclosure!.h)}
                 </text>
               </g>
+
+              {/* ── Circulation baseline label — top-right, outside enclosure ── */}
+              {(() => {
+                const encl = localEnclosure!
+                const enclArea = Math.round(encl.w * encl.h)
+                const occupiedSF = spaces.reduce((a, s) => {
+                  const l = localLayouts[s.id]
+                  if (!l || !rectsOverlap(l, encl)) return a
+                  const iw = Math.max(0, Math.min(l.x + l.w, encl.x + encl.w) - Math.max(l.x, encl.x))
+                  const ih = Math.max(0, Math.min(l.y + l.h, encl.y + encl.h) - Math.max(l.y, encl.y))
+                  return a + Math.round(iw * ih)
+                }, 0)
+                const circSF = Math.max(0, enclArea - occupiedSF)
+                const circOcc = circSF > 0 ? Math.ceil(circSF / 15) : 0
+                const circColor = isDark ? "#9ca3af" : "#6b7280"
+                const circBg = isDark ? "#1c1c1c" : "#f9fafb"
+                const circBorder = isDark ? "#374151" : "#d1d5db"
+                const lx = ex + ew + 44
+                const ly = ey
+                const bw = 94, bh = 58
+                return (
+                  <g pointerEvents="none">
+                    <rect x={lx} y={ly} width={bw} height={bh}
+                      fill={circBg} fillOpacity={0.96}
+                      stroke={circBorder} strokeWidth={1} rx={4} />
+                    <text x={lx + 8} y={ly + 13}
+                      fontSize={6.5} fill={circColor} fontFamily="'Geist Mono',monospace"
+                      fontWeight="700" letterSpacing={0.8} opacity={0.65}>
+                      CIRCULATION
+                    </text>
+                    <text x={lx + 8} y={ly + 28}
+                      fontSize={11} fill={circColor} fontFamily="'Geist Mono',monospace">
+                      {circSF.toLocaleString()} SF
+                    </text>
+                    <text x={lx + 8} y={ly + 48}
+                      fontSize={16} fill={occColor} fontFamily="'Geist Mono',monospace"
+                      fontWeight="800">
+                      {circOcc}
+                    </text>
+                    <text x={lx + 8 + (circOcc.toString().length * 9.6) + 4} y={ly + 48}
+                      fontSize={7} fill={circColor} fontFamily="'Geist Mono',monospace"
+                      opacity={0.55}>
+                      OCC
+                    </text>
+                  </g>
+                )
+              })()}
             </g>
           )
         })()}

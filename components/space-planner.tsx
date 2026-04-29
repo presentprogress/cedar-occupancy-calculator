@@ -423,7 +423,7 @@ export function SpacePlanner({
         newH = Math.max(0.5, startH + dy)
         newW = area / newH
       }
-      const current = equipSizes[itemId] ?? getEquipDims({ footprint: area, accessSpace: 0, id: itemId, name: "", quantity: 1 })
+      const current = equipSizes[itemId] ?? getEquipDims(equipment.find(e => e.id === itemId) ?? { footprint: area, accessSpace: 0, id: itemId, name: "", quantity: 1 })
       const borderX = (current.clearW - current.w) / 2
       const borderY = (current.clearH - current.h) / 2
       const newSize: EquipSize = { w: newW, h: newH, clearW: newW + 2 * borderX, clearH: newH + 2 * borderY }
@@ -741,7 +741,6 @@ export function SpacePlanner({
                     className={isSel ? "opacity-100" : "opacity-0 hover:opacity-100"}
                     onPointerDown={onPD}
                     onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, onPointerDown: onPD })}
-                    onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
                   />
                 )
               })}
@@ -914,7 +913,6 @@ export function SpacePlanner({
                       style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                       onPointerDown={onPD}
                       onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, onPointerDown: onPD })}
-                      onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
                     />
                   )
                 })
@@ -933,7 +931,6 @@ export function SpacePlanner({
                       style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                       onPointerDown={onPD}
                       onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, onPointerDown: onPD })}
-                      onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
                     />
                   )
                 })
@@ -986,7 +983,6 @@ export function SpacePlanner({
                     style={{ cursor: cur, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                     onPointerDown={onPD}
                     onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, onPointerDown: onPD })}
-                    onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
                   />
                 )
               })}

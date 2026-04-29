@@ -209,8 +209,9 @@ export function SpacePlanner({
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)           // room ID
   const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
+  const [selectedEnclosure, setSelectedEnclosure] = useState(false)
 
   // Local mutable copies of layouts and equip positions
   const [localLayouts, setLocalLayouts] = useState(spaceLayouts)
@@ -322,6 +323,12 @@ export function SpacePlanner({
     return { svgW: maxX * PX, svgH: maxY * PX }
   }, [localLayouts, equipPos, localEnclosure])
 
+  // ── Selection helpers (mutual exclusion) ─────────────────────────────────────
+  function selectRoom(id: string)  { setSelected(id);   setSelectedEquip(null); setSelectedEnclosure(false) }
+  function selectEquip(key: IKey)  { setSelected(null); setSelectedEquip(key);  setSelectedEnclosure(false) }
+  function selectEnclosure()       { setSelected(null); setSelectedEquip(null); setSelectedEnclosure(true)  }
+  function clearSelection()        { setSelected(null); setSelectedEquip(null); setSelectedEnclosure(false) }
+
   // ── Pointer ──────────────────────────────────────────────────────────────────
   function toFt(e: React.PointerEvent): EPos {
     const r = svgRef.current!.getBoundingClientRect()
@@ -331,7 +338,8 @@ export function SpacePlanner({
   function startRoomDrag(e: React.PointerEvent<SVGElement>, id: string, handle: RoomHandle) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setSelected(id)
+    setHandleOverlay(null)
+    selectRoom(id)
     setDrag({ kind: "room", id, handle, startFt: toFt(e), startLayout: { ...localLayouts[id] } })
   }
 
@@ -339,18 +347,22 @@ export function SpacePlanner({
     if (!localEnclosure) return
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
+    setHandleOverlay(null)
+    selectEnclosure()
     setDrag({ kind: "enclosure", handle, startFt: toFt(e), startLayout: { ...localEnclosure } })
   }
 
   function startEquipZoneDrag(e: React.PointerEvent<SVGElement>, key: IKey) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
+    selectEquip(key)
     setDrag({ kind: "equip-zone", key, startFt: toFt(e), startPos: { ...equipPos[key] } })
   }
 
   function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, borderX: number, borderY: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
+    selectEquip(key)
     const current = fpOffsets[key] ?? { x: borderX, y: borderY }
     setDrag({ kind: "equip-fp", key, startFt: toFt(e), startOff: { ...current }, borderX, borderY })
   }
@@ -358,12 +370,14 @@ export function SpacePlanner({
   function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startW: number, startH: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
+    setHandleOverlay(null)
     setDrag({ kind: "equip-resize-fp", key, itemId, handle, startFt: toFt(e), startW, startH })
   }
 
   function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startClearW: number, startClearH: number, fpW: number, fpH: number) {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
+    setHandleOverlay(null)
     setDrag({ kind: "equip-resize-zone", key, itemId, handle, startFt: toFt(e), startClearW, startClearH, fpW, fpH })
   }
 
@@ -490,7 +504,7 @@ export function SpacePlanner({
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerLeave={onUp}
-        onClick={() => setSelected(null)}
+        onClick={() => clearSelection()}
       >
         <defs>
           <pattern id="g1" width={PX} height={PX} patternUnits="userSpaceOnUse">
@@ -719,8 +733,8 @@ export function SpacePlanner({
                 </g>
               )}
 
-              {/* Resize handles */}
-              {(["left","right","top","bottom"] as RoomHandle[]).map(side => {
+              {/* Resize handles — only visible when selected */}
+              {isSel && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
                 const hx = side === "left" ? rx - HSHORT / 2
                   : side === "right" ? rx + rw - HSHORT / 2
                   : cx2 - HLONG / 2
@@ -738,7 +752,6 @@ export function SpacePlanner({
                     x={hx} y={hy} width={hw} height={hh}
                     fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
                     style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                    className={isSel ? "opacity-100" : "opacity-0 hover:opacity-100"}
                     onPointerDown={onPD}
                     onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, onPointerDown: onPD })}
                   />
@@ -851,7 +864,7 @@ export function SpacePlanner({
           const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key} onClick={() => setSelectedEquip(prev => prev === key ? null : key)}>
+            <g key={key} onClick={() => selectedEquip === key ? clearSelection() : selectEquip(key)}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clW} height={clH}
@@ -952,7 +965,7 @@ export function SpacePlanner({
               <rect
                 x={ex} y={ey} width={ew} height={eh}
                 fill="none"
-                stroke={encStroke} strokeWidth={2.5} strokeDasharray="10 6"
+                stroke={encStroke} strokeWidth={selectedEnclosure ? 3 : 2.5} strokeDasharray="10 6"
                 rx={4}
                 style={{ cursor: "grab" }}
                 onPointerDown={e => startEnclosureDrag(e, "move")}
@@ -963,7 +976,7 @@ export function SpacePlanner({
                 pointerEvents="none" letterSpacing={1}>
                 FACILITY BOUNDARY
               </text>
-              {(["left","right","top","bottom"] as RoomHandle[]).map(side => {
+              {selectedEnclosure && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
                 const hx = side === "left" ? ex - 4
                   : side === "right" ? ex + ew - 4
                   : ecx - 13

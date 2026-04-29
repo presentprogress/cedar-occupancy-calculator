@@ -167,6 +167,11 @@ function mergeEquipDefaults(
 
 // ─── Equipment size (non-square) ──────────────────────────────────────────────
 type EquipSize = { w: number; h: number; clearW: number; clearH: number }
+type HandleOverlay = {
+  key: string; x: number; y: number; w: number; h: number
+  fill: string; stroke: string; sw: number; cursor: string
+  onPointerDown?: (e: React.PointerEvent<SVGRectElement>) => void
+}
 
 // ─── Drag state ───────────────────────────────────────────────────────────────
 type RoomHandle = "left" | "right" | "top" | "bottom" | "move"
@@ -217,6 +222,8 @@ export function SpacePlanner({
   const [localEnclosure, setLocalEnclosure] = useState(enclosure)
   // Equipment sizes: keyed by item.id, stores independent W/H for non-square support
   const [equipSizes, setEquipSizes] = useState<Record<string, EquipSize>>(storedEquipSizes ?? {})
+  // Handle overlay: the hovered handle is re-rendered on top so overlapping handles remain accessible
+  const [handleOverlay, setHandleOverlay] = useState<HandleOverlay | null>(null)
 
   // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
@@ -407,9 +414,16 @@ export function SpacePlanner({
       }))
     } else if (drag.kind === "equip-resize-fp") {
       const { handle, startW, startH, itemId } = drag
-      const newW = handle === "right"  ? Math.max(2, startW + dx) : startW
-      const newH = handle === "bottom" ? Math.max(2, startH + dy) : startH
-      const current = equipSizes[itemId] ?? getEquipDims({ footprint: startW*startH, accessSpace: 0, id: itemId, name: "", quantity: 1 })
+      const area = startW * startH
+      let newW: number, newH: number
+      if (handle === "right") {
+        newW = Math.max(0.5, startW + dx)
+        newH = area / newW
+      } else {
+        newH = Math.max(0.5, startH + dy)
+        newW = area / newH
+      }
+      const current = equipSizes[itemId] ?? getEquipDims({ footprint: area, accessSpace: 0, id: itemId, name: "", quantity: 1 })
       const borderX = (current.clearW - current.w) / 2
       const borderY = (current.clearH - current.h) / 2
       const newSize: EquipSize = { w: newW, h: newH, clearW: newW + 2 * borderX, clearH: newH + 2 * borderY }
@@ -417,8 +431,15 @@ export function SpacePlanner({
       onEquipResize?.(itemId, { footprint: Math.round(newW * newH) })
     } else if (drag.kind === "equip-resize-zone") {
       const { handle, startClearW, startClearH, fpW, fpH, itemId } = drag
-      const newClearW = handle === "right"  ? Math.max(fpW, startClearW + dx) : startClearW
-      const newClearH = handle === "bottom" ? Math.max(fpH, startClearH + dy) : startClearH
+      const clearArea = startClearW * startClearH
+      let newClearW: number, newClearH: number
+      if (handle === "right") {
+        newClearW = Math.max(fpW, startClearW + dx)
+        newClearH = Math.max(fpH, clearArea / newClearW)
+      } else {
+        newClearH = Math.max(fpH, startClearH + dy)
+        newClearW = Math.max(fpW, clearArea / newClearH)
+      }
       const newSize: EquipSize = { w: fpW, h: fpH, clearW: newClearW, clearH: newClearH }
       setEquipSizes(prev => ({ ...prev, [itemId]: newSize }))
       onEquipResize?.(itemId, { accessSpace: Math.max(0, Math.round(newClearW * newClearH - fpW * fpH)) })
@@ -438,6 +459,7 @@ export function SpacePlanner({
       if (size) onEquipSizeChange?.(drag.itemId, size)
     }
     setDrag(null)
+    setHandleOverlay(null)
   }
 
   function resetEquip() {
@@ -708,13 +730,18 @@ export function SpacePlanner({
                 const hw = (side === "top" || side === "bottom") ? HLONG : HSHORT
                 const hh = (side === "left" || side === "right") ? HLONG : HSHORT
                 const cursor = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                const hkey = `r-${space.id}-${side}`
+                const isTop = handleOverlay?.key === hkey
+                const onPD = (e: React.PointerEvent<SVGRectElement>) => startRoomDrag(e, space.id, side)
                 return (
                   <rect key={side}
                     x={hx} y={hy} width={hw} height={hh}
                     fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
-                    style={{ cursor }}
+                    style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                     className={isSel ? "opacity-100" : "opacity-0 hover:opacity-100"}
-                    onPointerDown={e => startRoomDrag(e, space.id, side)}
+                    onPointerDown={onPD}
+                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, onPointerDown: onPD })}
+                    onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
                   />
                 )
               })}
@@ -874,39 +901,43 @@ export function SpacePlanner({
                 </g>
               )}
               {/* Footprint resize handles: right edge + bottom edge */}
-              {isSel && <>
-                <rect
-                  x={fpX + fpW - 4} y={fpY + fpH / 2 - 13}
-                  width={8} height={26}
-                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
-                  style={{ cursor: "ew-resize", pointerEvents: "all" }}
-                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right", fw, fh) }}
-                />
-                <rect
-                  x={fpX + fpW / 2 - 13} y={fpY + fpH - 4}
-                  width={26} height={8}
-                  fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
-                  style={{ cursor: "ns-resize", pointerEvents: "all" }}
-                  onPointerDown={e => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) }}
-                />
-              </>}
+              {isSel && (() => {
+                const handles = [
+                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,      y: fpY + fpH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
+                  { hkey: `ef-${key}-bottom`, x: fpX + fpW / 2 - 13, y: fpY + fpH - 4,      w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
+                ]
+                return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
+                  const isTop = handleOverlay?.key === hkey
+                  return (
+                    <rect key={hkey} x={x} y={y} width={w} height={h}
+                      fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                      style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
+                      onPointerDown={onPD}
+                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, onPointerDown: onPD })}
+                      onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
+                    />
+                  )
+                })
+              })()}
               {/* Clearance zone resize handles: right edge + bottom edge */}
-              {isSel && hasClearance && <>
-                <rect
-                  x={clearX + clW - 4} y={clearY + clH / 2 - 13}
-                  width={8} height={26}
-                  fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
-                  style={{ cursor: "ew-resize", pointerEvents: "all" }}
-                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right", clearW, clearH, fw, fh) }}
-                />
-                <rect
-                  x={clearX + clW / 2 - 13} y={clearY + clH - 4}
-                  width={26} height={8}
-                  fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
-                  style={{ cursor: "ns-resize", pointerEvents: "all" }}
-                  onPointerDown={e => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) }}
-                />
-              </>}
+              {isSel && hasClearance && (() => {
+                const handles = [
+                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4,      y: clearY + clH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-bottom`, x: clearX + clW / 2 - 13, y: clearY + clH - 4,      w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
+                ]
+                return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
+                  const isTop = handleOverlay?.key === hkey
+                  return (
+                    <rect key={hkey} x={x} y={y} width={w} height={h}
+                      fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                      style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
+                      onPointerDown={onPD}
+                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, onPointerDown: onPD })}
+                      onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
+                    />
+                  )
+                })
+              })()}
             </g>
           )
         })}
@@ -945,12 +976,17 @@ export function SpacePlanner({
                 const hw = (side === "top" || side === "bottom") ? 26 : 8
                 const hh = (side === "left" || side === "right") ? 26 : 8
                 const cur = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                const hkey = `enc-${side}`
+                const isTop = handleOverlay?.key === hkey
+                const onPD = (e: React.PointerEvent<SVGRectElement>) => startEnclosureDrag(e, side)
                 return (
                   <rect key={side}
                     x={hx} y={hy} width={hw} height={hh}
                     fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
-                    style={{ cursor: cur }}
-                    onPointerDown={e => startEnclosureDrag(e, side)}
+                    style={{ cursor: cur, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
+                    onPointerDown={onPD}
+                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, onPointerDown: onPD })}
+                    onPointerLeave={() => setHandleOverlay(ov => ov?.key === hkey ? null : ov)}
                   />
                 )
               })}
@@ -1020,6 +1056,19 @@ export function SpacePlanner({
             </g>
           )
         })()}
+
+        {/* Handle overlay — hovered handle re-rendered on top for z-order accessibility */}
+        {handleOverlay && (
+          <rect
+            x={handleOverlay.x} y={handleOverlay.y}
+            width={handleOverlay.w} height={handleOverlay.h}
+            fill={handleOverlay.fill} stroke={handleOverlay.stroke} strokeWidth={handleOverlay.sw}
+            rx={HRADIUS}
+            style={{ cursor: handleOverlay.cursor }}
+            onPointerDown={handleOverlay.onPointerDown}
+            onPointerLeave={() => setHandleOverlay(null)}
+          />
+        )}
 
         {/* Scale bar */}
         <g transform={`translate(12, ${svgH - 22})`} pointerEvents="none">

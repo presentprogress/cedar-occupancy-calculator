@@ -225,6 +225,8 @@ export function SpacePlanner({
   const [equipSizes, setEquipSizes] = useState<Record<string, EquipSize>>(storedEquipSizes ?? {})
   // Handle overlay: the hovered handle is re-rendered on top so overlapping handles remain accessible
   const [handleOverlay, setHandleOverlay] = useState<HandleOverlay | null>(null)
+  // Cursor position in SVG pixels — used to slide handles along their edge toward the cursor
+  const [cursorPx, setCursorPx] = useState<{x: number; y: number} | null>(null)
 
   // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
@@ -382,6 +384,8 @@ export function SpacePlanner({
   }
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    const r = svgRef.current!.getBoundingClientRect()
+    setCursorPx({ x: e.clientX - r.left, y: e.clientY - r.top })
     if (!drag) return
     const ft = toFt(e)
     const dx = snap(ft.x - drag.startFt.x)
@@ -474,6 +478,7 @@ export function SpacePlanner({
     }
     setDrag(null)
     setHandleOverlay(null)
+    setCursorPx(null)
   }
 
   function resetEquip() {
@@ -663,7 +668,7 @@ export function SpacePlanner({
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
-            <g key={space.id}>
+            <g key={space.id} onClick={e => e.stopPropagation()}>
               {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
@@ -733,14 +738,16 @@ export function SpacePlanner({
                 </g>
               )}
 
-              {/* Resize handles — only visible when selected */}
+              {/* Resize handles — only visible when selected; slide along edge toward cursor */}
               {isSel && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
+                const cpx = cursorPx ? Math.max(rx, Math.min(rx + rw, cursorPx.x)) : cx2
+                const cpy = cursorPx ? Math.max(ry, Math.min(ry + rh, cursorPx.y)) : cy2
                 const hx = side === "left" ? rx - HSHORT / 2
                   : side === "right" ? rx + rw - HSHORT / 2
-                  : cx2 - HLONG / 2
+                  : cpx - HLONG / 2
                 const hy = side === "top" ? ry - HSHORT / 2
                   : side === "bottom" ? ry + rh - HSHORT / 2
-                  : cy2 - HLONG / 2
+                  : cpy - HLONG / 2
                 const hw = (side === "top" || side === "bottom") ? HLONG : HSHORT
                 const hh = (side === "left" || side === "right") ? HLONG : HSHORT
                 const cursor = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
@@ -864,7 +871,7 @@ export function SpacePlanner({
           const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key} onClick={() => selectedEquip === key ? clearSelection() : selectEquip(key)}>
+            <g key={key} onClick={e => { e.stopPropagation(); selectedEquip === key ? clearSelection() : selectEquip(key) }}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clW} height={clH}
@@ -912,11 +919,13 @@ export function SpacePlanner({
                   </>}
                 </g>
               )}
-              {/* Footprint resize handles: right edge + bottom edge */}
+              {/* Footprint resize handles: right edge + bottom edge — slide toward cursor */}
               {isSel && (() => {
+                const cpy = cursorPx ? Math.max(fpY, Math.min(fpY + fpH, cursorPx.y)) : fpY + fpH / 2
+                const cpx = cursorPx ? Math.max(fpX, Math.min(fpX + fpW, cursorPx.x)) : fpX + fpW / 2
                 const handles = [
-                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,      y: fpY + fpH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
-                  { hkey: `ef-${key}-bottom`, x: fpX + fpW / 2 - 13, y: fpY + fpH - 4,      w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
+                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,  y: cpy - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
+                  { hkey: `ef-${key}-bottom`, x: cpx - 13, y: fpY + fpH - 4,   w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
                 ]
                 return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
@@ -930,11 +939,13 @@ export function SpacePlanner({
                   )
                 })
               })()}
-              {/* Clearance zone resize handles: right edge + bottom edge */}
+              {/* Clearance zone resize handles: right edge + bottom edge — slide toward cursor */}
               {isSel && hasClearance && (() => {
+                const czpy = cursorPx ? Math.max(clearY, Math.min(clearY + clH, cursorPx.y)) : clearY + clH / 2
+                const czpx = cursorPx ? Math.max(clearX, Math.min(clearX + clW, cursorPx.x)) : clearX + clW / 2
                 const handles = [
-                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4,      y: clearY + clH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
-                  { hkey: `ez-${key}-bottom`, x: clearX + clW / 2 - 13, y: clearY + clH - 4,      w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4, y: czpy - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-bottom`, x: czpx - 13, y: clearY + clH - 4, w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
                 ]
                 return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
@@ -961,7 +972,7 @@ export function SpacePlanner({
           const encStroke = isDark ? "#94a3b8" : "#475569"
           const hFill = isDark ? "#1e293b" : "#fff"
           return (
-            <g key="enclosure">
+            <g key="enclosure" onClick={e => e.stopPropagation()}>
               <rect
                 x={ex} y={ey} width={ew} height={eh}
                 fill="none"
@@ -977,12 +988,14 @@ export function SpacePlanner({
                 FACILITY BOUNDARY
               </text>
               {selectedEnclosure && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
+                const ecpx = cursorPx ? Math.max(ex, Math.min(ex + ew, cursorPx.x)) : ecx
+                const ecpy = cursorPx ? Math.max(ey, Math.min(ey + eh, cursorPx.y)) : ecy
                 const hx = side === "left" ? ex - 4
                   : side === "right" ? ex + ew - 4
-                  : ecx - 13
+                  : ecpx - 13
                 const hy = side === "top" ? ey - 4
                   : side === "bottom" ? ey + eh - 4
-                : ecy - 13
+                : ecpy - 13
                 const hw = (side === "top" || side === "bottom") ? 26 : 8
                 const hh = (side === "left" || side === "right") ? 26 : 8
                 const cur = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"

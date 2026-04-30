@@ -208,7 +208,6 @@ export function SpacePlanner({
   onEquipResize, onEquipSizeChange, onDuplicate,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
-  const justSelectedRef = useRef(false) // prevents the SVG onClick from clearing a selection made on the same pointerdown
   const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)           // room ID
   const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
@@ -327,9 +326,9 @@ export function SpacePlanner({
   }, [localLayouts, equipPos, localEnclosure])
 
   // ── Selection helpers (mutual exclusion) ─────────────────────────────────────
-  function selectRoom(id: string)  { justSelectedRef.current = true; setSelected(id);   setSelectedEquip(null); setSelectedEnclosure(false) }
-  function selectEquip(key: IKey)  { justSelectedRef.current = true; setSelected(null); setSelectedEquip(key);  setSelectedEnclosure(false) }
-  function selectEnclosure()       { justSelectedRef.current = true; setSelected(null); setSelectedEquip(null); setSelectedEnclosure(true)  }
+  function selectRoom(id: string)  { setSelected(id);   setSelectedEquip(null); setSelectedEnclosure(false) }
+  function selectEquip(key: IKey)  { setSelected(null); setSelectedEquip(key);  setSelectedEnclosure(false) }
+  function selectEnclosure()       { setSelected(null); setSelectedEquip(null); setSelectedEnclosure(true)  }
   function clearSelection()        { setSelected(null); setSelectedEquip(null); setSelectedEnclosure(false) }
 
   // ── Pointer ──────────────────────────────────────────────────────────────────
@@ -509,7 +508,7 @@ export function SpacePlanner({
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerLeave={e => { onUp(); setCursorPx(null) }}
-        onClick={() => { if (justSelectedRef.current) { justSelectedRef.current = false; return } clearSelection() }}
+        onClick={clearSelection}
       >
         <defs>
           <pattern id="g1" width={PX} height={PX} patternUnits="userSpaceOnUse">
@@ -871,7 +870,7 @@ export function SpacePlanner({
           const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key} onClick={e => { e.stopPropagation(); selectedEquip === key ? clearSelection() : selectEquip(key) }}>
+            <g key={key} onClick={e => e.stopPropagation()}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clW} height={clH}

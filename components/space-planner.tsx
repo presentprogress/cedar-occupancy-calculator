@@ -208,6 +208,7 @@ export function SpacePlanner({
   onEquipResize, onEquipSizeChange, onDuplicate,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const justSelectedRef = useRef(false) // prevents the SVG onClick from clearing a selection made on the same pointerdown
   const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)           // room ID
   const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
@@ -326,9 +327,9 @@ export function SpacePlanner({
   }, [localLayouts, equipPos, localEnclosure])
 
   // ── Selection helpers (mutual exclusion) ─────────────────────────────────────
-  function selectRoom(id: string)  { setSelected(id);   setSelectedEquip(null); setSelectedEnclosure(false) }
-  function selectEquip(key: IKey)  { setSelected(null); setSelectedEquip(key);  setSelectedEnclosure(false) }
-  function selectEnclosure()       { setSelected(null); setSelectedEquip(null); setSelectedEnclosure(true)  }
+  function selectRoom(id: string)  { justSelectedRef.current = true; setSelected(id);   setSelectedEquip(null); setSelectedEnclosure(false) }
+  function selectEquip(key: IKey)  { justSelectedRef.current = true; setSelected(null); setSelectedEquip(key);  setSelectedEnclosure(false) }
+  function selectEnclosure()       { justSelectedRef.current = true; setSelected(null); setSelectedEquip(null); setSelectedEnclosure(true)  }
   function clearSelection()        { setSelected(null); setSelectedEquip(null); setSelectedEnclosure(false) }
 
   // ── Pointer ──────────────────────────────────────────────────────────────────
@@ -478,7 +479,6 @@ export function SpacePlanner({
     }
     setDrag(null)
     setHandleOverlay(null)
-    setCursorPx(null)
   }
 
   function resetEquip() {
@@ -508,8 +508,8 @@ export function SpacePlanner({
         className="block select-none"
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerLeave={onUp}
-        onClick={() => clearSelection()}
+        onPointerLeave={e => { onUp(); setCursorPx(null) }}
+        onClick={() => { if (justSelectedRef.current) { justSelectedRef.current = false; return } clearSelection() }}
       >
         <defs>
           <pattern id="g1" width={PX} height={PX} patternUnits="userSpaceOnUse">

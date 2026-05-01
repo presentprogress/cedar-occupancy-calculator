@@ -263,8 +263,8 @@ export function SpacePlanner({
   // Colour helpers
   const palette = isDark ? ROOM_COLORS_DARK : ROOM_COLORS
   const fb = isDark ? FB_D : FB_L
-  const gridColor = isDark ? "#1a2540" : "#e5e7eb"
-  const bgColor = isDark ? "#0d1525" : "#f8fafc"
+  const gridColor = isDark ? "#2a261f" : "#e7e2d3"
+  const bgColor = isDark ? "#1a1814" : "#f4efe2"
   const dimColor = isDark ? "#4b5563" : "#9ca3af"
   const occColor = isDark ? "#f59e0b" : "#d97706"
 
@@ -556,7 +556,7 @@ export function SpacePlanner({
       {/* Reset button */}
       <button
         onClick={resetEquip}
-        className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur hover:bg-muted/60"
+        className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-md border border-border bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur hover:bg-muted/60"
       >
         <RotateCcw className="h-3 w-3" /> Reset equipment
       </button>

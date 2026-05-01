@@ -17,18 +17,19 @@ interface SpaceEditorProps {
 
 export function SpaceEditor({ spaces, onAdd, onDuplicate, onUpdate, onRemove }: SpaceEditorProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60">
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          Area Management
-        </p>
-        <Button onClick={onAdd} size="sm" variant="outline" className="h-7 gap-1 text-xs">
-          <Plus className="h-3 w-3" />
-          Add Space
-        </Button>
+    <div className="panel">
+      <div className="panel-head">
+        <span className="label-eyebrow">Area Management</span>
+        <div className="flex items-center gap-2">
+          <span className="label-eyebrow">{spaces.length} spaces</span>
+          <Button onClick={onAdd} size="sm" variant="outline" className="h-7 gap-1 text-xs">
+            <Plus className="h-3 w-3" />
+            Add
+          </Button>
+        </div>
       </div>
 
-      <div className="divide-y divide-border/40">
+      <div className="divide-y divide-border/50">
         {spaces.map((space) => {
           const isNonRoom = isNonRoomType(space.type)
           // Resolve with backward-compat fallback for saved state that used excludeFromOccupancy
@@ -100,7 +101,7 @@ export function SpaceEditor({ spaces, onAdd, onDuplicate, onUpdate, onRemove }: 
                   ) : (
                     <>
                       {space.squareFeet} ÷ {IBC_LOAD_FACTORS[space.type]} ={" "}
-                      <span className="text-amber-500 font-semibold">
+                      <span className="text-primary font-semibold">
                         {Math.ceil(space.squareFeet / IBC_LOAD_FACTORS[space.type])} occ
                       </span>
                     </>

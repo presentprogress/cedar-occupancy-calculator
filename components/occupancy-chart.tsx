@@ -88,11 +88,10 @@ export function OccupancyChart({ segments, autoDeckOcc, totalOccupancy, classNam
   }
 
   return (
-    <div className={`overflow-hidden rounded-xl border border-border/60 flex flex-col ${className}`}>
-      <div className="border-b border-border/60 px-4 py-3 shrink-0">
-        <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-          Occupancy Breakdown
-        </p>
+    <div className={`panel flex flex-col ${className}`}>
+      <div className="panel-head shrink-0">
+        <span className="label-eyebrow">Occupancy Breakdown</span>
+        <span className="label-eyebrow">{paths.length} sources</span>
       </div>
       <div className="flex flex-1 items-center gap-6 px-4 py-4">
         {/* Donut */}

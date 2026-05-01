@@ -357,13 +357,11 @@ export default function OccupancyCalculator() {
     <main className="min-h-screen bg-background text-foreground">
 
       {/* ── Sticky header ── */}
-      <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
         <div className="mx-auto max-w-[1600px] flex items-center justify-between gap-4 px-4 py-3 lg:px-8">
-          <div className="shrink-0">
-            <h1 className="text-base font-semibold">Cedar Occupancy Calculator</h1>
-            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              IBC Table 1004.5 · Amenity Spaces
-            </p>
+          <div className="flex items-baseline gap-3 shrink-0">
+            <h1 className="text-base font-semibold tracking-tight">Cedar</h1>
+            <span className="label-eyebrow">Occupancy · IBC 1004.5</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -375,7 +373,7 @@ export default function OccupancyCalculator() {
                 a.download = `cedar-debug-${new Date().toISOString().slice(0,19).replace(/:/g,"-")}.json`
                 a.click(); URL.revokeObjectURL(url)
               }}
-              className="rounded-md border border-border/60 px-2 py-1 font-mono text-xs uppercase tracking-widest text-muted-foreground hover:bg-muted/40"
+              className="rounded-md border border-border px-2 py-1 label-eyebrow hover:bg-muted/50"
               title="Export debug JSON"
             >
               JSON
@@ -392,44 +390,47 @@ export default function OccupancyCalculator() {
 
       <div className="mx-auto max-w-[1600px] space-y-5 px-4 py-6 lg:px-8">
 
-        {/* ── Settings (top) ── */}
-        <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-border/60 bg-card px-4 py-3">
-          <p className="shrink-0 font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            Project Settings
-          </p>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="max-occ" className="whitespace-nowrap text-xs text-muted-foreground">Max Occupants</Label>
-            <Input id="max-occ" type="number" value={maxOccupants ?? ""} placeholder="—"
-              onChange={(e) => setAppState((prev) => ({
-                ...prev, maxOccupants: e.target.value ? Number(e.target.value) : undefined,
-              }))}
-              className="h-7 w-20 text-sm" />
+        {/* ── Inputs ── */}
+        <section className="panel">
+          <div className="panel-head">
+            <span className="label-eyebrow">Inputs</span>
+            <span className="label-eyebrow">3 params</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="far-cap" className="whitespace-nowrap text-xs text-muted-foreground">FAR Cap (SF)</Label>
-            <Input id="far-cap" type="number" value={farCap ?? ""} placeholder="—"
-              onChange={(e) => setAppState((prev) => ({
-                ...prev, farCap: e.target.value ? Number(e.target.value) : undefined,
-              }))}
-              className="h-7 w-24 text-sm" />
-            {calc.farOverLimit && (
-              <Badge variant="destructive" className="h-6 gap-1 text-xs">
-                <AlertTriangle className="h-3 w-3" />+{(calc.farSF - farCap!).toLocaleString()} SF
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="uncond-limit" className="whitespace-nowrap text-xs text-muted-foreground">Uncond. Limit (SF)</Label>
-            <Input id="uncond-limit" type="number" value={unconditionedLimit}
-              onChange={(e) => setAppState((prev) => ({
-                ...prev, unconditionedLimit: Number(e.target.value),
-              }))}
-              className="h-7 w-24 text-sm" />
-            {calc.unconditionedOverLimit && (
-              <Badge variant="destructive" className="h-6 gap-1 text-xs">
-                <AlertTriangle className="h-3 w-3" />+{calc.unconditionedSF - unconditionedLimit} SF
-              </Badge>
-            )}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="max-occ" className="whitespace-nowrap text-xs text-muted-foreground">Max Occupants</Label>
+              <Input id="max-occ" type="number" value={maxOccupants ?? ""} placeholder="—"
+                onChange={(e) => setAppState((prev) => ({
+                  ...prev, maxOccupants: e.target.value ? Number(e.target.value) : undefined,
+                }))}
+                className="h-7 w-20 text-sm" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="far-cap" className="whitespace-nowrap text-xs text-muted-foreground">FAR Cap (SF)</Label>
+              <Input id="far-cap" type="number" value={farCap ?? ""} placeholder="—"
+                onChange={(e) => setAppState((prev) => ({
+                  ...prev, farCap: e.target.value ? Number(e.target.value) : undefined,
+                }))}
+                className="h-7 w-24 text-sm" />
+              {calc.farOverLimit && (
+                <Badge variant="destructive" className="h-6 gap-1 text-xs">
+                  <AlertTriangle className="h-3 w-3" />+{(calc.farSF - farCap!).toLocaleString()} SF
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="uncond-limit" className="whitespace-nowrap text-xs text-muted-foreground">Uncond. Limit (SF)</Label>
+              <Input id="uncond-limit" type="number" value={unconditionedLimit}
+                onChange={(e) => setAppState((prev) => ({
+                  ...prev, unconditionedLimit: Number(e.target.value),
+                }))}
+                className="h-7 w-24 text-sm" />
+              {calc.unconditionedOverLimit && (
+                <Badge variant="destructive" className="h-6 gap-1 text-xs">
+                  <AlertTriangle className="h-3 w-3" />+{calc.unconditionedSF - unconditionedLimit} SF
+                </Badge>
+              )}
+            </div>
           </div>
         </section>
 
@@ -457,38 +458,45 @@ export default function OccupancyCalculator() {
         </div>
 
         {/* ── Plumbing Requirements ── */}
-        <section className="grid grid-cols-4 gap-3">
-          {[
-            { label: "Total WCs", value: calc.wc.total, sub: "IBC Table 2902.1" },
-            { label: "Accessible", value: calc.wc.accessible, sub: "of total WCs" },
-            { label: "Non-Accessible", value: calc.wc.nonAccessible, sub: "standard stalls" },
-            { label: "Lavatories", value: calc.lavatories, sub: `for ${calc.totalOccupancy} occ` },
-          ].map(({ label, value, sub }) => (
-            <div key={label} className="overflow-hidden rounded-xl border border-border/60 bg-card px-4 py-3 flex flex-col gap-1">
-              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{label}</p>
-              <p className="font-black tabular-nums text-4xl leading-none">{value}</p>
-              <p className="font-mono text-[10px] text-muted-foreground">{sub}</p>
-            </div>
-          ))}
+        <section className="panel">
+          <div className="panel-head">
+            <span className="label-eyebrow">Plumbing</span>
+            <span className="label-eyebrow">IBC 2902.1 · {calc.totalOccupancy} occ</span>
+          </div>
+          <div className="grid grid-cols-4 divide-x divide-border">
+            {[
+              { label: "Total WCs", value: calc.wc.total, sub: "fixture count" },
+              { label: "Accessible", value: calc.wc.accessible, sub: "of total" },
+              { label: "Non-Accessible", value: calc.wc.nonAccessible, sub: "standard" },
+              { label: "Lavatories", value: calc.lavatories, sub: "fixture count" },
+            ].map(({ label, value, sub }) => (
+              <div key={label} className="flex flex-col gap-1 px-4 py-3">
+                <span className="label-eyebrow">{label}</span>
+                <span className="font-black tabular-nums text-4xl leading-none">{value}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">{sub}</span>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* ── Canvas (primary — drag handles set SF) ── */}
-        <section className="overflow-hidden rounded-xl border border-border/60">
-          <div className="flex items-center justify-between border-b border-border/60 bg-card px-4 py-2.5">
-            <div>
-              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                Floor Plan · drag room edges to resize · drag equipment to reposition · drag footprint inside clearance zone
-              </p>
-            </div>
-            {calc.totalGymSF > 0 && (
-              <span className={`rounded-md border px-2 py-1 font-mono text-xs ${
-                calc.equipmentFitsInGym
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "border-destructive/30 bg-destructive/10 text-destructive"
-              }`}>
-                {calc.totalEquipmentSpace} SF equip {calc.equipmentFitsInGym ? "✓ fits" : "✗ overflow"}
+        <section className="panel">
+          <div className="panel-head">
+            <span className="label-eyebrow">Floor Plan</span>
+            <div className="flex items-center gap-3">
+              <span className="hidden md:inline label-eyebrow normal-case tracking-normal text-[11px]">
+                drag edges to resize · drag equipment to reposition
               </span>
-            )}
+              {calc.totalGymSF > 0 && (
+                <span className={`rounded border px-2 py-0.5 font-mono text-[11px] ${
+                  calc.equipmentFitsInGym
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-destructive/40 bg-destructive/10 text-destructive"
+                }`}>
+                  {calc.totalEquipmentSpace} SF equip {calc.equipmentFitsInGym ? "fits" : "overflow"}
+                </span>
+              )}
+            </div>
           </div>
           <SpacePlanner
             spaces={spaces}
@@ -554,24 +562,25 @@ export default function OccupancyCalculator() {
         </section>
 
         {/* ── IBC Reference ── */}
-        <section className="overflow-hidden rounded-xl border border-border/60">
+        <section className="panel">
           <button
-            className="flex w-full items-center justify-between border-b border-border/60 bg-card px-4 py-3 text-left transition-colors hover:bg-muted/40"
+            className={`panel-head w-full text-left transition-colors hover:bg-muted/40 ${ibcOpen ? "" : "border-b-0"}`}
             onClick={() => setIbcOpen(!ibcOpen)}
           >
-            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              IBC Table 1004.5 — Load Factor Reference
-            </p>
-            {ibcOpen
-              ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+            <span className="label-eyebrow">IBC 1004.5 — Load Factor Reference</span>
+            <span className="flex items-center gap-2">
+              <span className="label-eyebrow">{Object.keys(IBC_LOAD_FACTORS).length} types</span>
+              {ibcOpen
+                ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+            </span>
           </button>
           {ibcOpen && (
             <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
               {Object.entries(IBC_LOAD_FACTORS).map(([type, factor]) => (
-                <div key={type} className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
+                <div key={type} className="flex items-center justify-between rounded border border-border bg-muted/30 px-3 py-2">
                   <span className="text-xs text-muted-foreground">{type}</span>
-                  <Badge variant="outline" className="font-mono text-xs">{factor} SF/p</Badge>
+                  <span className="font-mono text-xs tabular-nums">{factor} SF/p</span>
                 </div>
               ))}
             </div>

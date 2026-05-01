@@ -19,6 +19,7 @@ import { useUndoableState } from "@/hooks/use-undoable-state"
 import { useAutoSnapshot } from "@/hooks/use-auto-snapshot"
 import {
   IBC_LOAD_FACTORS,
+  isNonRoomType,
   rectsOverlap,
   type SpaceType,
   type SpaceArea,
@@ -31,12 +32,12 @@ import {
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 const defaultSpaces: SpaceArea[] = [
-  { id: "1", name: "Main Pool",    type: "Swimming Pool (Water Surface)", squareFeet: 800, isConditioned: true },
-  { id: "2", name: "Pool Deck",    type: "Pool Deck",                     squareFeet: 600, isConditioned: true },
-  { id: "3", name: "Fitness Area", type: "Exercise Room (Equipment)",     squareFeet: 500, isConditioned: true },
-  { id: "4", name: "Sauna",        type: "Sauna/Steam Room",              squareFeet: 120, isConditioned: false },
-  { id: "5", name: "Cold Plunge",  type: "Cold Plunge (Water Surface)",   squareFeet:  48, isConditioned: true },
-  { id: "6", name: "Locker Room",  type: "Locker Room",                   squareFeet: 400, isConditioned: true },
+  { id: "1", name: "Main Pool",    type: "Swimming Pool (Water Surface)", squareFeet: 800, isConditioned: false, impactsFAR: false, impactsOccupancy: true },
+  { id: "2", name: "Pool Deck",    type: "Pool Deck",                     squareFeet: 600, isConditioned: false, impactsFAR: false, impactsOccupancy: true },
+  { id: "3", name: "Fitness Area", type: "Exercise Room (Equipment)",     squareFeet: 500, isConditioned: true,  impactsFAR: true,  impactsOccupancy: true },
+  { id: "4", name: "Sauna",        type: "Sauna/Steam Room",              squareFeet: 120, isConditioned: false, impactsFAR: true,  impactsOccupancy: true },
+  { id: "5", name: "Cold Plunge",  type: "Cold Plunge (Water Surface)",   squareFeet:  48, isConditioned: false, impactsFAR: false, impactsOccupancy: true },
+  { id: "6", name: "Locker Room",  type: "Locker Room",                   squareFeet: 400, isConditioned: true,  impactsFAR: true,  impactsOccupancy: true },
 ]
 
 // Initial canvas positions (w × h = squareFeet for each)
@@ -110,11 +111,16 @@ export default function OccupancyCalculator() {
   // ── Space mutations ──────────────────────────────────────────────────────────
   const addSpace = () => {
     const id = crypto.randomUUID()
+    const defaultType = "Pool Deck" as SpaceType
+    const nonRoom = isNonRoomType(defaultType)
     setAppState((prev) => ({
       ...prev,
       spaces: [{
-        id, name: "New Space", type: "Pool Deck" as SpaceType,
-        squareFeet: 100, isConditioned: true,
+        id, name: "New Space", type: defaultType,
+        squareFeet: 100,
+        isConditioned: !nonRoom,
+        impactsFAR: !nonRoom,
+        impactsOccupancy: true,
       }, ...prev.spaces],
       spaceLayouts: { ...prev.spaceLayouts, [id]: { x: 4, y: 4, w: 10, h: 10 } },
     }))
@@ -206,10 +212,13 @@ export default function OccupancyCalculator() {
 
     const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
 
+    // Resolve impactsOccupancy with backward-compat for old excludeFromOccupancy field
+    const impactsOcc = (s: SpaceArea) => s.impactsOccupancy ?? !(s.excludeFromOccupancy ?? false)
+
     const spaceResults = spaces.map((s) => {
       const layout = spaceLayouts[s.id]
       const inBounds = !enclosure || !layout || rectsOverlap(layout, enclosure)
-      const active = inBounds && !s.excludeFromOccupancy
+      const active = inBounds && impactsOcc(s)
       return {
         ...s,
         loadFactor: IBC_LOAD_FACTORS[s.type],
@@ -219,7 +228,7 @@ export default function OccupancyCalculator() {
     })
 
     // Correct overlapping water surface occupancies to use union area (prevents double-counting)
-    const activeWater = spaceResults.filter(s => waterTypes.has(s.type) && !s.outsideEnclosure && !s.excludeFromOccupancy)
+    const activeWater = spaceResults.filter(s => waterTypes.has(s.type) && !s.outsideEnclosure && impactsOcc(s))
     const seenWaterIds = new Set<string>()
     const waterOccFix = new Map<string, number>()
     for (const s of activeWater) {
@@ -283,9 +292,10 @@ export default function OccupancyCalculator() {
       const layout = spaceLayouts[s.id]
       return !enclosure || !layout || rectsOverlap(layout, enclosure)
     }
-    const conditionedSF = spaces.filter(s => s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
+    const conditionedSF   = spaces.filter(s =>  s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
     const unconditionedSF = spaces.filter(s => !s.isConditioned && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
     const totalSF = conditionedSF + unconditionedSF
+    const farSF = spaces.filter(s => (s.impactsFAR ?? !isNonRoomType(s.type)) && inBoundsSF(s)).reduce((a, s) => a + s.squareFeet, 0)
 
     // Circulation baseline — enclosure area minus the intersection of every in-bounds room with the enclosure
     const enclosureArea = enclosure ? Math.round(enclosure.w * enclosure.h) : 0
@@ -331,11 +341,11 @@ export default function OccupancyCalculator() {
     const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
 
     return {
-      spaceResults: finalSpaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, totalOccupancy, totalGymSF,
+      spaceResults: finalSpaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, farSF, totalOccupancy, totalGymSF,
       autoDeckOcc, circulationSF, circulationOcc,
       equipmentFitsInGym: totalGymSF >= totalEquipmentSpace,
       unconditionedOverLimit: unconditionedSF > unconditionedLimit,
-      farOverLimit: farCap !== undefined && conditionedSF > farCap,
+      farOverLimit: farCap !== undefined && farSF > farCap,
       remainingOccupantLoad: maxOccupants !== undefined ? maxOccupants - totalOccupancy : undefined,
       wc: getWCRequirements(totalOccupancy),
       lavatories: getLavatoryCount(totalOccupancy),

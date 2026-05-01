@@ -109,21 +109,22 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
 
   return (
     <section>
-      <div className="overflow-hidden rounded-xl border border-border/60">
+      <div className="panel">
         {/* Panel header */}
-        <div className="flex items-center border-b border-border/60 px-3 py-3">
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Totals</p>
+        <div className="panel-head">
+          <span className="label-eyebrow">Totals</span>
+          <span className="label-eyebrow">{rows.length} rows</span>
         </div>
 
         {/* Column headers */}
-        <div className={`grid ${COLS} items-center gap-x-2 border-b border-border/60 bg-muted/20 px-3 py-1.5`}>
-          <span className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Space</span>
-          <span className="text-right font-mono text-xs uppercase tracking-widest text-muted-foreground">Cond SF</span>
-          <span className="text-right font-mono text-xs uppercase tracking-widest text-muted-foreground">Uncond SF</span>
-          <span className="text-right font-mono text-xs uppercase tracking-widest text-muted-foreground">Occ</span>
+        <div className={`grid ${COLS} items-center gap-x-2 border-b border-border bg-muted/30 px-3 py-1.5`}>
+          <span className="label-eyebrow">Space</span>
+          <span className="text-right label-eyebrow">Cond SF</span>
+          <span className="text-right label-eyebrow">Uncond SF</span>
+          <span className="text-right label-eyebrow">Occ</span>
         </div>
 
-        <div className="divide-y divide-border/30">
+        <div className="divide-y divide-border/40">
           {rows.map((row, i) => {
             if (row.kind === "water-group") {
               const { group, sf, occ } = row
@@ -136,9 +137,9 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
                   className={`grid ${COLS} items-center gap-x-2 px-3 py-1.5 ${dim ? "opacity-45" : ""}`}>
                   <div className="flex min-w-0 flex-col gap-0.5">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60" />
                       <span className="truncate text-xs font-medium">{names}</span>
-                      {group.length > 1 && <span className="shrink-0 rounded font-mono text-[10px] text-blue-500/70">merged</span>}
+                      {group.length > 1 && <span className="shrink-0 rounded font-mono text-[10px] text-muted-foreground">merged</span>}
                       {excluded && <span className="shrink-0 font-mono text-[10px] text-destructive/70">excl</span>}
                       {outside && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">outside</span>}
                     </div>
@@ -146,7 +147,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
                   </div>
                   <span className="text-right font-mono text-xs tabular-nums text-muted-foreground">—</span>
                   <span className="text-right font-mono text-xs tabular-nums">{sf.toLocaleString()}</span>
-                  <span className={`text-right font-bold text-xs tabular-nums ${dim ? "text-muted-foreground" : "text-amber-500"}`}>
+                  <span className={`text-right font-bold text-xs tabular-nums ${dim ? "text-muted-foreground" : "text-primary"}`}>
                     {dim ? 0 : occ}
                   </span>
                 </div>
@@ -157,20 +158,20 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
               const { sf, occ, infoOnly } = row
               return (
                 <div key={`deck-${i}`}
-                  className={`grid ${COLS} items-center gap-x-2 px-3 py-1.5 bg-amber-500/5 ${infoOnly ? "opacity-45" : ""}`}>
+                  className={`grid ${COLS} items-center gap-x-2 px-3 py-1.5 bg-primary/5 ${infoOnly ? "opacity-45" : ""}`}>
                   <div className="flex min-w-0 flex-col gap-0.5">
                     <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500/70" />
-                      <span className="truncate text-xs font-medium text-amber-600 dark:text-amber-400">Pool Deck (Auto)</span>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
+                      <span className="truncate text-xs font-medium text-primary">Pool Deck (Auto)</span>
                       {infoOnly
                         ? <span className="shrink-0 rounded font-mono text-[10px] text-muted-foreground">ref only</span>
-                        : <span className="shrink-0 rounded font-mono text-[10px] text-amber-500/60">auto</span>}
+                        : <span className="shrink-0 rounded font-mono text-[10px] text-primary/60">auto</span>}
                     </div>
                     {!infoOnly && <span className="pl-3 font-mono text-[10px] text-muted-foreground">÷ {DECK_FACTOR} SF/p</span>}
                   </div>
                   <span className="text-right font-mono text-xs tabular-nums text-muted-foreground">—</span>
                   <span className="text-right font-mono text-xs tabular-nums">{sf.toLocaleString()}</span>
-                  <span className={`text-right font-bold text-xs tabular-nums ${infoOnly ? "text-muted-foreground" : "text-amber-500"}`}>
+                  <span className={`text-right font-bold text-xs tabular-nums ${infoOnly ? "text-muted-foreground" : "text-primary"}`}>
                     {occ}
                   </span>
                 </div>
@@ -188,7 +189,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
                 className={`grid ${COLS} items-center gap-x-2 px-3 py-1.5 ${dim || !space.isConditioned ? "opacity-45" : ""}`}>
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${space.isConditioned && !excluded ? "bg-cyan-400" : "bg-muted-foreground"}`} />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${space.isConditioned && !excluded ? "bg-foreground/70" : "bg-muted-foreground"}`} />
                     <span className={`truncate text-xs font-medium ${excluded ? "line-through" : ""}`}>{space.name}</span>
                     {!space.isConditioned && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">uncond</span>}
                     {excluded && <span className="shrink-0 font-mono text-[10px] text-destructive/70">excl</span>}
@@ -202,7 +203,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
                 <span className="text-right font-mono text-xs tabular-nums">
                   {!space.isConditioned ? space.squareFeet.toLocaleString() : <span className="text-muted-foreground">—</span>}
                 </span>
-                <span className={`text-right font-bold text-xs tabular-nums ${!zeroOcc ? "text-amber-500" : "text-muted-foreground"}`}>
+                <span className={`text-right font-bold text-xs tabular-nums ${!zeroOcc ? "text-primary" : "text-muted-foreground"}`}>
                   {zeroOcc ? 0 : space.occupancy}
                 </span>
               </div>
@@ -210,7 +211,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
           })}
 
           {/* Totals footer */}
-          <div className={`grid ${COLS} items-start gap-x-2 border-t border-amber-500/20 bg-amber-500/5 px-3 py-2`}>
+          <div className={`grid ${COLS} items-start gap-x-2 border-t border-primary/30 bg-primary/5 px-3 py-2`}>
             <span className="text-xs font-semibold">Total Occupant Load</span>
             <div className="text-right">
               <div className="font-mono text-xs tabular-nums font-semibold">{condTotalSF.toLocaleString()}</div>
@@ -228,7 +229,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
                 </div>
               )}
             </div>
-            <span className="text-right font-black text-base tabular-nums text-amber-500">{totalOccupancy}</span>
+            <span className="text-right font-black text-base tabular-nums text-primary">{totalOccupancy}</span>
           </div>
         </div>
       </div>

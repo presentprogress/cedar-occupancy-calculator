@@ -28,28 +28,26 @@ export function EquipmentEditor({
   onRemove,
 }: EquipmentEditorProps) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border/60">
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <div>
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            Equipment Manager
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {totalEquipmentSpace} SF total
+    <div className="panel">
+      <div className="panel-head">
+        <span className="label-eyebrow">Equipment</span>
+        <div className="flex items-center gap-2">
+          <span className="label-eyebrow">
+            {totalEquipmentSpace} sf
             {totalGymSF > 0 && (
-              <span className={equipmentFitsInGym ? " text-emerald-400" : " text-destructive"}>
-                {" "}· {equipmentFitsInGym ? "fits in" : "exceeds"} {totalGymSF} SF gym
+              <span className={equipmentFitsInGym ? " text-primary" : " text-destructive"}>
+                {" "}· {equipmentFitsInGym ? "fits" : "exceeds"} {totalGymSF} sf
               </span>
             )}
-          </p>
+          </span>
+          <Button onClick={onAdd} size="sm" variant="outline" className="h-7 gap-1 text-xs">
+            <Plus className="h-3 w-3" />
+            Add
+          </Button>
         </div>
-        <Button onClick={onAdd} size="sm" variant="outline" className="h-7 gap-1 text-xs">
-          <Plus className="h-3 w-3" />
-          Add
-        </Button>
       </div>
 
-      <div className="divide-y divide-border/40">
+      <div className="divide-y divide-border/50">
         {equipment.map((item) => {
           const shared = computedShared[item.id] ?? 0
           const total = (item.footprint + item.accessSpace) * item.quantity

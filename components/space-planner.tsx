@@ -211,6 +211,8 @@ export function SpacePlanner({
   onEquipResize, onEquipSizeChange, onDuplicate, onDeleteSpace,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
+  // Selection state captured at pointerdown — lets onClick know if element was already selected
+  const preDownSelRef = useRef<{ room: string|null; equip: string|null; enclosure: boolean }>({ room: null, equip: null, enclosure: false })
   const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)           // room ID
   const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
@@ -379,6 +381,10 @@ export function SpacePlanner({
   }
 
   function startRoomDrag(e: React.PointerEvent<SVGElement>, id: string, handle: RoomHandle) {
+    // Capture pre-down selection only for body moves; resize handles shouldn't trigger deselect on tap
+    preDownSelRef.current = handle === "move"
+      ? { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
+      : { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setHandleOverlay(null)
@@ -388,6 +394,9 @@ export function SpacePlanner({
 
   function startEnclosureDrag(e: React.PointerEvent<SVGElement>, handle: RoomHandle) {
     if (!localEnclosure) return
+    preDownSelRef.current = handle === "move"
+      ? { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
+      : { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setHandleOverlay(null)
@@ -396,6 +405,7 @@ export function SpacePlanner({
   }
 
   function startEquipZoneDrag(e: React.PointerEvent<SVGElement>, key: IKey) {
+    preDownSelRef.current = { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     selectEquip(key)
@@ -403,6 +413,7 @@ export function SpacePlanner({
   }
 
   function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, borderX: number, borderY: number) {
+    preDownSelRef.current = { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     selectEquip(key)
@@ -411,6 +422,7 @@ export function SpacePlanner({
   }
 
   function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startW: number, startH: number) {
+    preDownSelRef.current = { room: null, equip: null, enclosure: false } // resize handle tap shouldn't deselect
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setHandleOverlay(null)
@@ -418,6 +430,7 @@ export function SpacePlanner({
   }
 
   function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startClearW: number, startClearH: number, fpW: number, fpH: number) {
+    preDownSelRef.current = { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     setHandleOverlay(null)
@@ -714,7 +727,7 @@ export function SpacePlanner({
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
-            <g key={space.id} onClick={e => { e.stopPropagation(); if (selected === space.id) clearSelection() }}>
+            <g key={space.id} onClick={e => { e.stopPropagation(); if (preDownSelRef.current.room === space.id) clearSelection() }}>
               {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
@@ -733,8 +746,8 @@ export function SpacePlanner({
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels — hide SF and occ for merged water; group overlay shows combined values */}
-              {rw > 28 && rh > 20 && (
+              {/* Labels — suppressed entirely for merged rooms; group overlay shows combined values */}
+              {!isMerged && rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
                   <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
                     textAnchor="middle"
@@ -742,7 +755,7 @@ export function SpacePlanner({
                     fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
                     {rw > 80 ? space.name : space.name.split(" ")[0]}
                   </text>
-                  {!isMerged && rh > 44 && rw > 40 && (
+                  {rh > 44 && rw > 40 && (
                     <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
                       textAnchor="middle"
                       fontSize={Math.min(10, Math.max(7, rw / 14))}
@@ -750,15 +763,13 @@ export function SpacePlanner({
                       {sf.toLocaleString()} SF
                     </text>
                   )}
-                  {!isMerged && (
-                    <text x={cx2} y={ry + rh - 14}
-                      textAnchor="middle"
-                      fontSize={Math.min(16, Math.max(9, rw / 5.5))}
-                      fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
-                      {occ}
-                    </text>
-                  )}
-                  {!isMerged && rw > 36 && (
+                  <text x={cx2} y={ry + rh - 14}
+                    textAnchor="middle"
+                    fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                    fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                    {occ}
+                  </text>
+                  {rw > 36 && (
                     <text x={cx2} y={ry + rh - 4}
                       textAnchor="middle" fontSize={6.5}
                       fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
@@ -991,7 +1002,7 @@ export function SpacePlanner({
           const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key} onClick={e => { e.stopPropagation(); if (selectedEquip === key) clearSelection() }}>
+            <g key={key} onClick={e => { e.stopPropagation(); if (preDownSelRef.current.equip === key) clearSelection() }}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clW} height={clH}
@@ -1088,7 +1099,7 @@ export function SpacePlanner({
           const encStroke = isDark ? "#94a3b8" : "#475569"
           const hFill = isDark ? "#1e293b" : "#fff"
           return (
-            <g key="enclosure" onClick={e => { e.stopPropagation(); if (selectedEnclosure) clearSelection() }}>
+            <g key="enclosure" onClick={e => { e.stopPropagation(); if (preDownSelRef.current.enclosure) clearSelection() }}>
               <rect
                 x={ex} y={ey} width={ew} height={eh}
                 fill="none"

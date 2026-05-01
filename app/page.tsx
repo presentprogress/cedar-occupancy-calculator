@@ -414,7 +414,7 @@ export default function OccupancyCalculator() {
               className="h-7 w-24 text-sm" />
             {calc.farOverLimit && (
               <Badge variant="destructive" className="h-6 gap-1 text-xs">
-                <AlertTriangle className="h-3 w-3" />+{(calc.conditionedSF - farCap!).toLocaleString()} SF
+                <AlertTriangle className="h-3 w-3" />+{(calc.farSF - farCap!).toLocaleString()} SF
               </Badge>
             )}
           </div>

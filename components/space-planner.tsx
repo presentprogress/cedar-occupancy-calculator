@@ -600,6 +600,7 @@ export function SpacePlanner({
         {/* ── Pool deck rings — per-pool expanded rings, masked to true 3' contour ── */}
         {(() => {
           const waterSpaces = spaces.filter(s => isWater(s.type))
+          const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
           const seen = new Set<string>()
           const groups: SpaceArea[][] = []
           for (const s of waterSpaces) {
@@ -650,7 +651,7 @@ export function SpacePlanner({
             const maskId = `dm-${gi}`
 
             return (
-              <g key={`deck-grp-${gi}`} pointerEvents="none">
+              <g key={`deck-grp-${gi}`} pointerEvents="none" opacity={hasManualPoolDeck ? 0.35 : 1}>
                 <defs>
                   <mask id={maskId}>
                     {ls.map((l, li) => (
@@ -693,24 +694,26 @@ export function SpacePlanner({
 
                 <g pointerEvents="none" fontFamily="'Geist Mono',monospace"
                   fill={isDark ? "#fbbf24" : "#92400e"}>
-                  {/* SF at top — matches room name/SF position */}
                   <text x={labelX} y={rly + 12}
                     textAnchor="middle" fontSize={7.5}>
-                    Pool Deck (Auto)
+                    {hasManualPoolDeck ? "Auto Deck (ref)" : "Pool Deck (Auto)"}
                   </text>
                   <text x={labelX} y={rly + 22}
                     textAnchor="middle" fontSize={7.5} opacity={0.7}>
                     {deckSF.toLocaleString()} SF
                   </text>
-                  {/* Occ at bottom — matches room occ position */}
-                  <text x={labelX} y={rly + rlh - 14}
-                    textAnchor="middle" fontSize={16} fontWeight="800">
-                    {deckOcc}
-                  </text>
-                  <text x={labelX} y={rly + rlh - 4}
-                    textAnchor="middle" fontSize={6.5} opacity={0.5}>
-                    OCC
-                  </text>
+                  {!hasManualPoolDeck && (
+                    <>
+                      <text x={labelX} y={rly + rlh - 14}
+                        textAnchor="middle" fontSize={16} fontWeight="800">
+                        {deckOcc}
+                      </text>
+                      <text x={labelX} y={rly + rlh - 4}
+                        textAnchor="middle" fontSize={6.5} opacity={0.5}>
+                        OCC
+                      </text>
+                    </>
+                  )}
                 </g>
               </g>
             )
@@ -1001,13 +1004,14 @@ export function SpacePlanner({
           )
         })}
 
-        {/* ── Unconditioned room stroke pass — dashed outer + dashed inner ── */}
+        {/* ── Unconditioned room stroke pass — dashed outer + dashed inner
+            Excludes: merged rooms, pool deck (→ solid pass), water surfaces (→ own pass) ── */}
         {spaces.map(space => {
           const layout = localLayouts[space.id]
           if (!layout || space.isConditioned) return null
+          if (isWater(space.type) || space.type === "Pool Deck") return null
           const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
-          const isPoolDeck = space.type === "Pool Deck"
-          if (isMerged || isPoolDeck) return null
+          if (isMerged) return null
           const colors = palette[space.type] ?? fb
           const isSel = selected === space.id
           const rx2 = px(layout.x), ry2 = px(layout.y)
@@ -1027,13 +1031,31 @@ export function SpacePlanner({
           )
         })}
 
-        {/* ── Conditioned room solid-stroke pass — solid outer + solid inner, renders above dashed at colinear edges ── */}
+        {/* ── Non-merged water surface stroke pass — solid outer only, no inner ring ── */}
+        {spaces.map(space => {
+          if (!isWater(space.type)) return null
+          const layout = localLayouts[space.id]
+          if (!layout || mergedWaterIds.has(space.id)) return null
+          const colors = palette[space.type] ?? fb
+          const isSel = selected === space.id
+          return (
+            <rect key={`ws-${space.id}`}
+              x={px(layout.x)} y={px(layout.y)} width={px(layout.w)} height={px(layout.h)}
+              fill="none" stroke={colors.stroke} strokeWidth={isSel ? 2.5 : 1.5} rx={3}
+              pointerEvents="none" />
+          )
+        })}
+
+        {/* ── Conditioned + pool deck solid-stroke pass — solid outer + solid inner, above dashes at colinear edges
+            Pool deck gets outer only (no inner ring — it's not a room). ── */}
         {spaces.map(space => {
           const layout = localLayouts[space.id]
-          if (!layout || !space.isConditioned) return null
-          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          if (!layout) return null
           const isPoolDeck = space.type === "Pool Deck"
-          if (isMerged || isPoolDeck) return null
+          if (!space.isConditioned && !isPoolDeck) return null
+          if (isWater(space.type)) return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          if (isMerged) return null
           const colors = palette[space.type] ?? fb
           const isSel = selected === space.id
           const rx2 = px(layout.x), ry2 = px(layout.y)
@@ -1043,7 +1065,7 @@ export function SpacePlanner({
             <g key={`solid-${space.id}`} pointerEvents="none">
               <rect x={rx2} y={ry2} width={rw2} height={rh2}
                 fill="none" stroke={colors.stroke} strokeWidth={sw} rx={3}/>
-              {rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
+              {!isPoolDeck && rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
                 <rect x={rx2 + INNER_INSET} y={ry2 + INNER_INSET}
                   width={rw2 - INNER_INSET * 2} height={rh2 - INNER_INSET * 2}
                   fill="none" stroke={colors.stroke} strokeWidth={1}

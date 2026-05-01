@@ -3,7 +3,7 @@
 import { useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { RotateCcw } from "lucide-react"
-import { IBC_LOAD_FACTORS, rectsOverlap } from "@/lib/types"
+import { IBC_LOAD_FACTORS, isNonRoomType, rectsOverlap } from "@/lib/types"
 import type { EquipmentItem, SpaceArea, SpaceLayout } from "@/lib/types"
 
 // ─── Scale & constants ────────────────────────────────────────────────────────
@@ -549,6 +549,7 @@ export function SpacePlanner({
 
   // ── Render ────────────────────────────────────────────────────────────────────
   const HLONG = 26, HSHORT = 8, HSHORT_HIT = 14, HRADIUS = 3
+  const INNER_INSET = 4  // px — inner border ring inset for double-line room rendering
 
   return (
     <div className="relative overflow-auto" style={{ background: bgColor }}>
@@ -648,7 +649,6 @@ export function SpacePlanner({
             const labelX = rlx + rlw / 2
             const maskId = `dm-${gi}`
 
-            const filterId = `df${gi}`
             return (
               <g key={`deck-grp-${gi}`} pointerEvents="none">
                 <defs>
@@ -666,24 +666,30 @@ export function SpacePlanner({
                         fill="black" />
                     ))}
                   </mask>
-                  {/* Filter: dilate shape → subtract original → amber border ring */}
-                  <filter id={filterId} x="-6%" y="-6%" width="112%" height="112%" colorInterpolationFilters="sRGB">
-                    <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
-                    <feComposite in="dilated" in2="SourceAlpha" operator="out" result="borderAlpha"/>
-                    <feFlood floodColor="#d97706" result="col"/>
-                    <feComposite in="col" in2="borderAlpha" operator="in" result="border"/>
-                    <feMerge>
-                      <feMergeNode in="SourceGraphic"/>
-                      <feMergeNode in="border"/>
-                    </feMerge>
-                  </filter>
+                  {/* Outer stroke masks: white everywhere, other expanded rects blacked out (+2px) */}
+                  {expanded.map((_, ei) => (
+                    <mask key={`sm-${ei}`} id={`${maskId}-s${ei}`}>
+                      <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                      {expanded.filter((_,j) => j !== ei).map((e, j) => (
+                        <rect key={j} fill="black"
+                          x={px(e.x)-2} y={px(e.y)-2}
+                          width={px(e.w)+4} height={px(e.h)+4}/>
+                      ))}
+                    </mask>
+                  ))}
                 </defs>
 
-                {/* Amber fill masked to true 3' contour, with contour-following border via filter */}
+                {/* Amber fill masked to true 3' contour */}
                 <rect x={mx} y={my} width={mw} height={mh}
                   fill={deckFill} fillOpacity={deckOpacity}
-                  mask={`url(#${maskId})`}
-                  filter={`url(#${filterId})`} />
+                  mask={`url(#${maskId})`} />
+                {/* Solid amber stroke — outer boundary of deck, shared edges masked */}
+                {expanded.map((e, ei) => (
+                  <rect key={`ds-${ei}`}
+                    x={px(e.x)} y={px(e.y)} width={px(e.w)} height={px(e.h)}
+                    fill="none" stroke={deckStroke} strokeWidth={1.5} rx={3}
+                    mask={`url(#${maskId}-s${ei})`}/>
+                ))}
 
                 <g pointerEvents="none" fontFamily="'Geist Mono',monospace"
                   fill={isDark ? "#fbbf24" : "#92400e"}>
@@ -733,17 +739,24 @@ export function SpacePlanner({
 
           return (
             <g key={space.id} onClick={e => { e.stopPropagation(); if (preDownSelRef.current.room === space.id) clearSelection() }}>
-              {/* Room body — merged/pool-deck spaces render fill only; group overlay or auto-deck handles stroke */}
+              {/* Room body — fill only; strokes rendered in separate passes for correct z-order */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
-                fill={colors.fill}
-                stroke={colors.stroke}
-                strokeWidth={isSel ? 2.5 : (isMerged || isPoolDeck) ? 0 : 1.5}
-                strokeDasharray={space.isConditioned ? undefined : "6 3"}
+                fill={colors.fill} stroke="none"
                 rx={3}
                 style={{ cursor: "grab" }}
                 onPointerDown={e => startRoomDrag(e, space.id, "move")}
               />
+              {/* FAR band — tinted strip between outer+inner border lines (conditioned FAR rooms only) */}
+              {space.isConditioned && !isMerged && !isPoolDeck && (space.impactsFAR ?? !isNonRoomType(space.type)) && (
+                <>
+                  <rect x={rx} y={ry} width={rw} height={rh}
+                    fill={colors.stroke} fillOpacity={0.10} rx={3} pointerEvents="none" />
+                  <rect x={rx + INNER_INSET} y={ry + INNER_INSET}
+                    width={Math.max(0, rw - INNER_INSET * 2)} height={Math.max(0, rh - INNER_INSET * 2)}
+                    fill={colors.fill} rx={Math.max(0, 3 - INNER_INSET)} pointerEvents="none" />
+                </>
+              )}
 
               {/* Conditioned accent bar — hidden for merged water (group overlay handles boundary) */}
               {space.isConditioned && !isMerged && (
@@ -988,7 +1001,33 @@ export function SpacePlanner({
           )
         })}
 
-        {/* ── Conditioned room solid-stroke pass — renders above dashed strokes at colinear edges ── */}
+        {/* ── Unconditioned room stroke pass — dashed outer + dashed inner ── */}
+        {spaces.map(space => {
+          const layout = localLayouts[space.id]
+          if (!layout || space.isConditioned) return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          const isPoolDeck = space.type === "Pool Deck"
+          if (isMerged || isPoolDeck) return null
+          const colors = palette[space.type] ?? fb
+          const isSel = selected === space.id
+          const rx2 = px(layout.x), ry2 = px(layout.y)
+          const rw2 = px(layout.w), rh2 = px(layout.h)
+          const sw = isSel ? 2.5 : 1.5
+          return (
+            <g key={`unc-${space.id}`} pointerEvents="none">
+              <rect x={rx2} y={ry2} width={rw2} height={rh2}
+                fill="none" stroke={colors.stroke} strokeWidth={sw} strokeDasharray="6 3" rx={3}/>
+              {rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
+                <rect x={rx2 + INNER_INSET} y={ry2 + INNER_INSET}
+                  width={rw2 - INNER_INSET * 2} height={rh2 - INNER_INSET * 2}
+                  fill="none" stroke={colors.stroke} strokeWidth={1} strokeDasharray="6 3"
+                  opacity={0.45} rx={Math.max(0, 3 - INNER_INSET)}/>
+              )}
+            </g>
+          )
+        })}
+
+        {/* ── Conditioned room solid-stroke pass — solid outer + solid inner, renders above dashed at colinear edges ── */}
         {spaces.map(space => {
           const layout = localLayouts[space.id]
           if (!layout || !space.isConditioned) return null
@@ -997,11 +1036,20 @@ export function SpacePlanner({
           if (isMerged || isPoolDeck) return null
           const colors = palette[space.type] ?? fb
           const isSel = selected === space.id
+          const rx2 = px(layout.x), ry2 = px(layout.y)
+          const rw2 = px(layout.w), rh2 = px(layout.h)
+          const sw = isSel ? 2.5 : 1.5
           return (
-            <rect key={`solid-${space.id}`}
-              x={px(layout.x)} y={px(layout.y)} width={px(layout.w)} height={px(layout.h)}
-              fill="none" stroke={colors.stroke} strokeWidth={isSel ? 2.5 : 1.5}
-              rx={3} pointerEvents="none" />
+            <g key={`solid-${space.id}`} pointerEvents="none">
+              <rect x={rx2} y={ry2} width={rw2} height={rh2}
+                fill="none" stroke={colors.stroke} strokeWidth={sw} rx={3}/>
+              {rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
+                <rect x={rx2 + INNER_INSET} y={ry2 + INNER_INSET}
+                  width={rw2 - INNER_INSET * 2} height={rh2 - INNER_INSET * 2}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  opacity={0.45} rx={Math.max(0, 3 - INNER_INSET)}/>
+              )}
+            </g>
           )
         })}
 

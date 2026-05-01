@@ -829,6 +829,26 @@ export function SpacePlanner({
           )
         })}
 
+        {/*
+          ── CANONICAL GROUP-OVERLAY PATTERN (used by BOTH waterGroups AND nonWaterTypeGroups) ──
+          Two SVG masks per rect (ri) achieve clean merged-room rendering:
+
+          Outer mask  (id=`${maskBase}-m${ri}`)
+            • Canvas starts WHITE (stroke visible everywhere)
+            • Each OTHER rect is blacked out with a +2px buffer
+            • Effect: only the external boundary of rect ri renders; internal shared edges are hidden
+
+          Inner mask  (id=`${maskBase}-im${ri}`)
+            • Canvas starts BLACK (stroke hidden everywhere)
+            • Each OTHER rect is whited out (no buffer)
+            • Effect: dashed strokes only appear INSIDE the shared overlap zone
+
+          Label: SF then occ, centred on the true overlap zone (falls back to bounding-box centre)
+
+          ⚠️  If you change one section you MUST change the other to match.
+          ─────────────────────────────────────────────────────────────────────────────────────────
+        */}
+
         {/* ── Water group combined outlines + combined label ── */}
         {waterGroups.map((group, gi) => {
           const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
@@ -898,7 +918,7 @@ export function SpacePlanner({
           )
         })}
 
-        {/* ── Non-water same-type group combined outlines + combined label ── */}
+        {/* ── Non-water same-type group combined outlines + combined label ── (⚠️ keep in sync with waterGroups above — canonical pattern) */}
         {nonWaterTypeGroups.map((group, gi) => {
           const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
           if (ls.length < 2) return null
@@ -909,6 +929,7 @@ export function SpacePlanner({
           const unionOcc = Math.ceil(unionSF / loadFactor)
           const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
           const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          // Centre label on the intersection (overlap) of all rects; fall back to bounding box
           const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
           const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
           const hasOverlap = ox0 < ox1 && oy0 < oy1
@@ -919,27 +940,35 @@ export function SpacePlanner({
               <defs>
                 {ls.map((_, ri) => (
                   <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
+                    {/* Outer stroke mask: white everywhere except other rects (+ 2px buffer) */}
                     <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
                     {ls.filter((_,j) => j !== ri).map((l, j) => (
-                      <rect key={j} fill="black" x={px(l.x)-2} y={px(l.y)-2} width={px(l.w)+4} height={px(l.h)+4}/>
+                      <rect key={j} fill="black"
+                        x={px(l.x)-2} y={px(l.y)-2}
+                        width={px(l.w)+4} height={px(l.h)+4}/>
                     ))}
                   </mask>
                 ))}
                 {ls.map((_, ri) => (
                   <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
+                    {/* Inner dash mask: black everywhere except inside the other rects */}
                     <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
                     {ls.filter((_,j) => j !== ri).map((l, j) => (
-                      <rect key={j} fill="white" x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}/>
+                      <rect key={j} fill="white"
+                        x={px(l.x)} y={px(l.y)}
+                        width={px(l.w)} height={px(l.h)}/>
                     ))}
                   </mask>
                 ))}
               </defs>
+              {/* Outer boundary strokes — masked to hide the internal edges */}
               {ls.map((l, ri) => (
                 <rect key={`outer-${ri}`}
                   x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
                   fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
                   mask={`url(#${maskBase}-m${ri})`}/>
               ))}
+              {/* Inner dashes — show only inside the overlap zone, lightly distinguish bodies */}
               {ls.map((l, ri) => (
                 <rect key={`dash-${ri}`}
                   x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
@@ -947,11 +976,9 @@ export function SpacePlanner({
                   strokeDasharray="6 5" opacity={0.28} rx={3}
                   mask={`url(#${maskBase}-im${ri})`}/>
               ))}
+              {/* Combined SF + occ label centred on the overlap zone */}
               <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
-                <tspan x={labelX} y={labelY - 18} fontSize={8} fill={colors.text} fontWeight="700" opacity={0.85}>
-                  {group[0].name}
-                </tspan>
-                <tspan x={labelX} dy={13} fontSize={9} fill={colors.text} opacity={0.65}>
+                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
                   {unionSF.toLocaleString()} SF
                 </tspan>
                 <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>

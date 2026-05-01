@@ -511,6 +511,7 @@ export default function OccupancyCalculator() {
               }), { skipHistory: false })
             }
             onDuplicate={duplicateSpace}
+            onDeleteSpace={removeSpace}
           />
         </section>
 

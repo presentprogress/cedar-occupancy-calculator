@@ -171,6 +171,8 @@ type HandleOverlay = {
   key: string; x: number; y: number; w: number; h: number
   fill: string; stroke: string; sw: number; cursor: string
   onPointerDown?: (e: React.PointerEvent<SVGRectElement>) => void
+  followXBounds?: [number, number]  // cursor x clamped to this range; handle x = clamp - w/2
+  followYBounds?: [number, number]  // cursor y clamped to this range; handle y = clamp - h/2
 }
 
 // ─── Drag state ───────────────────────────────────────────────────────────────
@@ -198,6 +200,7 @@ interface SpacePlannerProps {
   onEquipResize?: (id: string, updates: Partial<EquipmentItem>) => void
   onEquipSizeChange?: (id: string, size: EquipSize) => void
   onDuplicate?: (spaceId: string) => void
+  onDeleteSpace?: (spaceId: string) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -205,7 +208,7 @@ export function SpacePlanner({
   spaces, equipment, spaceLayouts, enclosure,
   storedEquipPositions, storedEquipSizes, isDark,
   onSpaceResize, onEnclosureChange, onEquipPositionsChange,
-  onEquipResize, onEquipSizeChange, onDuplicate,
+  onEquipResize, onEquipSizeChange, onDuplicate, onDeleteSpace,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -306,6 +309,44 @@ export function SpacePlanner({
     for (const g of waterGroups) for (const s of g) ids.add(s.id)
     return ids
   }, [waterGroups])
+
+  // Overlapping same-type groups for non-water rooms (connected components per type)
+  const nonWaterTypeGroups = useMemo(() => {
+    const byType: Record<string, SpaceArea[]> = {}
+    for (const s of spaces) {
+      if (isWater(s.type)) continue
+      if (!byType[s.type]) byType[s.type] = []
+      byType[s.type].push(s)
+    }
+    const groups: SpaceArea[][] = []
+    for (const typeSpaces of Object.values(byType)) {
+      const seen = new Set<string>()
+      for (const s of typeSpaces) {
+        if (seen.has(s.id)) continue
+        const la = localLayouts[s.id]
+        if (!la) { seen.add(s.id); continue }
+        const group = [s]; seen.add(s.id)
+        let qi = 0
+        while (qi < group.length) {
+          const lc = localLayouts[group[qi++].id]
+          if (!lc) continue
+          for (const other of typeSpaces) {
+            if (seen.has(other.id)) continue
+            const lo = localLayouts[other.id]
+            if (lo && rectsOverlap(lc, lo)) { group.push(other); seen.add(other.id) }
+          }
+        }
+        if (group.length > 1) groups.push(group)
+      }
+    }
+    return groups
+  }, [spaces, localLayouts])
+
+  const mergedNonWaterIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const g of nonWaterTypeGroups) for (const s of g) ids.add(s.id)
+    return ids
+  }, [nonWaterTypeGroups])
 
   // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
@@ -653,8 +694,12 @@ export function SpacePlanner({
           })
         })()}
 
-        {/* ── ROOMS ── */}
-        {spaces.map(space => {
+        {/* ── ROOMS — larger areas rendered first (lower z) ── */}
+        {[...spaces].sort((a, b) => {
+          const la = localLayouts[a.id], lb = localLayouts[b.id]
+          if (!la || !lb) return 0
+          return (lb.w * lb.h) - (la.w * la.h)
+        }).map(space => {
           const layout = localLayouts[space.id]
           if (!layout) return null
           const colors = palette[space.type] ?? fb
@@ -664,12 +709,12 @@ export function SpacePlanner({
           const isSel = selected === space.id
           const sf = Math.round(layout.w * layout.h)
           const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
-          const isMerged = mergedWaterIds.has(space.id)
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
 
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
-            <g key={space.id} onClick={e => e.stopPropagation()}>
+            <g key={space.id} onClick={e => { e.stopPropagation(); if (selected === space.id) clearSelection() }}>
               {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
@@ -739,44 +784,58 @@ export function SpacePlanner({
                 </g>
               )}
 
-              {/* Resize handles — only visible when selected; slide along edge toward cursor */}
+              {/* Resize handles — only visible when selected; overlay follows cursor when hovered */}
               {isSel && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
-                const cpx = cursorPx ? Math.max(rx, Math.min(rx + rw, cursorPx.x)) : cx2
-                const cpy = cursorPx ? Math.max(ry, Math.min(ry + rh, cursorPx.y)) : cy2
+                const isLR = side === "left" || side === "right"
                 const hx = side === "left" ? rx - HSHORT / 2
                   : side === "right" ? rx + rw - HSHORT / 2
-                  : cpx - HLONG / 2
+                  : Math.max(rx, Math.min(rx + rw - HLONG, cx2 - HLONG / 2))
                 const hy = side === "top" ? ry - HSHORT / 2
                   : side === "bottom" ? ry + rh - HSHORT / 2
-                  : cpy - HLONG / 2
-                const hw = (side === "top" || side === "bottom") ? HLONG : HSHORT
-                const hh = (side === "left" || side === "right") ? HLONG : HSHORT
-                const cursor = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                  : Math.max(ry, Math.min(ry + rh - HLONG, cy2 - HLONG / 2))
+                const hw = isLR ? HSHORT : HLONG
+                const hh = isLR ? HLONG : HSHORT
+                const cursor = isLR ? "ew-resize" : "ns-resize"
                 const hkey = `r-${space.id}-${side}`
                 const isTop = handleOverlay?.key === hkey
                 const onPD = (e: React.PointerEvent<SVGRectElement>) => startRoomDrag(e, space.id, side)
+                const followOpts = isLR
+                  ? { followYBounds: [ry + HLONG / 2, ry + rh - HLONG / 2] as [number, number] }
+                  : { followXBounds: [rx + HLONG / 2, rx + rw - HLONG / 2] as [number, number] }
                 return (
                   <rect key={side}
                     x={hx} y={hy} width={hw} height={hh}
                     fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
                     style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                     onPointerDown={onPD}
-                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, onPointerDown: onPD })}
+                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
                   />
                 )
               })}
 
-              {/* Duplicate button — top-right corner of selected room */}
-              {isSel && onDuplicate && (
-                <g style={{ cursor: "pointer" }}
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
-                  <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
-                    fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
-                  <text x={rx + rw - 15} y={ry + 15} textAnchor="middle" fontSize={11}
-                    fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">
-                    ⧉
-                  </text>
+              {/* Action buttons — top-right corner of selected room */}
+              {isSel && (
+                <g pointerEvents="all">
+                  {onDuplicate && (
+                    <g style={{ cursor: "pointer" }}
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
+                      <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
+                        fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
+                      <text x={rx + rw - 15} y={ry + 15} textAnchor="middle" fontSize={11}
+                        fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">⧉</text>
+                    </g>
+                  )}
+                  {onDeleteSpace && (
+                    <g style={{ cursor: "pointer" }}
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); clearSelection(); onDeleteSpace(space.id) }}>
+                      <rect x={rx + rw - 52} y={ry + 3} width={22} height={18} rx={3}
+                        fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
+                      <text x={rx + rw - 41} y={ry + 15} textAnchor="middle" fontSize={13}
+                        fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">×</text>
+                    </g>
+                  )}
                 </g>
               )}
             </g>
@@ -852,6 +911,66 @@ export function SpacePlanner({
           )
         })}
 
+        {/* ── Non-water same-type group combined outlines + combined label ── */}
+        {nonWaterTypeGroups.map((group, gi) => {
+          const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
+          if (ls.length < 2) return null
+          const colors = palette[group[0].type] ?? fb
+          const loadFactor = IBC_LOAD_FACTORS[group[0].type] ?? 100
+          const maskBase = `tg${gi}`
+          const unionSF = Math.round(rectUnionAreaFt(ls))
+          const unionOcc = Math.ceil(unionSF / loadFactor)
+          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
+          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
+          const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
+          const hasOverlap = ox0 < ox1 && oy0 < oy1
+          const labelX = px(hasOverlap ? (ox0+ox1)/2 : (bx0+bx1)/2)
+          const labelY = px(hasOverlap ? (oy0+oy1)/2 : (by0+by1)/2)
+          return (
+            <g key={`tg-${gi}`} pointerEvents="none">
+              <defs>
+                {ls.map((_, ri) => (
+                  <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
+                    <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="black" x={px(l.x)-2} y={px(l.y)-2} width={px(l.w)+4} height={px(l.h)+4}/>
+                    ))}
+                  </mask>
+                ))}
+                {ls.map((_, ri) => (
+                  <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
+                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="white" x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}/>
+                    ))}
+                  </mask>
+                ))}
+              </defs>
+              {ls.map((l, ri) => (
+                <rect key={`outer-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
+                  mask={`url(#${maskBase}-m${ri})`}/>
+              ))}
+              {ls.map((l, ri) => (
+                <rect key={`dash-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  strokeDasharray="6 5" opacity={0.28} rx={3}
+                  mask={`url(#${maskBase}-im${ri})`}/>
+              ))}
+              <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
+                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+                  {unionSF.toLocaleString()} SF
+                </tspan>
+                <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
+                <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
+              </text>
+            </g>
+          )
+        })}
+
         {/* ── EQUIPMENT (on top of rooms) ── */}
         {instances.map(({ key, item, color, label, unitSF }) => {
           const pos = equipPos[key]
@@ -872,7 +991,7 @@ export function SpacePlanner({
           const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key} onClick={e => e.stopPropagation()}>
+            <g key={key} onClick={e => { e.stopPropagation(); if (selectedEquip === key) clearSelection() }}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clW} height={clH}
@@ -920,42 +1039,38 @@ export function SpacePlanner({
                   </>}
                 </g>
               )}
-              {/* Footprint resize handles: right edge + bottom edge — slide toward cursor */}
+              {/* Footprint resize handles: right edge + bottom edge — overlay follows cursor when hovered */}
               {isSel && (() => {
-                const cpy = cursorPx ? Math.max(fpY, Math.min(fpY + fpH, cursorPx.y)) : fpY + fpH / 2
-                const cpx = cursorPx ? Math.max(fpX, Math.min(fpX + fpW, cursorPx.x)) : fpX + fpW / 2
                 const handles = [
-                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,  y: cpy - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
-                  { hkey: `ef-${key}-bottom`, x: cpx - 13, y: fpY + fpH - 4,   w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
+                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,         y: fpY + fpH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, followOpts: { followYBounds: [fpY + 13, fpY + fpH - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
+                  { hkey: `ef-${key}-bottom`, x: fpX + fpW / 2 - 13, y: fpY + fpH - 4,         w: 26, h: 8,  cursor: "ns-resize" as const, followOpts: { followXBounds: [fpX + 13, fpX + fpW - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
                 ]
-                return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
+                return handles.map(({ hkey, x, y, w, h, cursor, followOpts, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
                   return (
                     <rect key={hkey} x={x} y={y} width={w} height={h}
                       fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
                       style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                       onPointerDown={onPD}
-                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, onPointerDown: onPD })}
+                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
                     />
                   )
                 })
               })()}
-              {/* Clearance zone resize handles: right edge + bottom edge — slide toward cursor */}
+              {/* Clearance zone resize handles: right edge + bottom edge — overlay follows cursor when hovered */}
               {isSel && hasClearance && (() => {
-                const czpy = cursorPx ? Math.max(clearY, Math.min(clearY + clH, cursorPx.y)) : clearY + clH / 2
-                const czpx = cursorPx ? Math.max(clearX, Math.min(clearX + clW, cursorPx.x)) : clearX + clW / 2
                 const handles = [
-                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4, y: czpy - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
-                  { hkey: `ez-${key}-bottom`, x: czpx - 13, y: clearY + clH - 4, w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4,         y: clearY + clH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, followOpts: { followYBounds: [clearY + 13, clearY + clH - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-bottom`, x: clearX + clW / 2 - 13, y: clearY + clH - 4,         w: 26, h: 8,  cursor: "ns-resize" as const, followOpts: { followXBounds: [clearX + 13, clearX + clW - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
                 ]
-                return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
+                return handles.map(({ hkey, x, y, w, h, cursor, followOpts, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
                   return (
                     <rect key={hkey} x={x} y={y} width={w} height={h}
                       fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
                       style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                       onPointerDown={onPD}
-                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, onPointerDown: onPD })}
+                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, ...followOpts, onPointerDown: onPD })}
                     />
                   )
                 })
@@ -973,7 +1088,7 @@ export function SpacePlanner({
           const encStroke = isDark ? "#94a3b8" : "#475569"
           const hFill = isDark ? "#1e293b" : "#fff"
           return (
-            <g key="enclosure" onClick={e => e.stopPropagation()}>
+            <g key="enclosure" onClick={e => { e.stopPropagation(); if (selectedEnclosure) clearSelection() }}>
               <rect
                 x={ex} y={ey} width={ew} height={eh}
                 fill="none"
@@ -989,27 +1104,29 @@ export function SpacePlanner({
                 FACILITY BOUNDARY
               </text>
               {selectedEnclosure && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
-                const ecpx = cursorPx ? Math.max(ex, Math.min(ex + ew, cursorPx.x)) : ecx
-                const ecpy = cursorPx ? Math.max(ey, Math.min(ey + eh, cursorPx.y)) : ecy
+                const isLR = side === "left" || side === "right"
                 const hx = side === "left" ? ex - 4
                   : side === "right" ? ex + ew - 4
-                  : ecpx - 13
+                  : Math.max(ex, Math.min(ex + ew - 26, ecx - 13))
                 const hy = side === "top" ? ey - 4
                   : side === "bottom" ? ey + eh - 4
-                : ecpy - 13
-                const hw = (side === "top" || side === "bottom") ? 26 : 8
-                const hh = (side === "left" || side === "right") ? 26 : 8
-                const cur = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                  : Math.max(ey, Math.min(ey + eh - 26, ecy - 13))
+                const hw = isLR ? 8 : 26
+                const hh = isLR ? 26 : 8
+                const cur = isLR ? "ew-resize" : "ns-resize"
                 const hkey = `enc-${side}`
                 const isTop = handleOverlay?.key === hkey
                 const onPD = (e: React.PointerEvent<SVGRectElement>) => startEnclosureDrag(e, side)
+                const followOpts = isLR
+                  ? { followYBounds: [ey + 13, ey + eh - 13] as [number, number] }
+                  : { followXBounds: [ex + 13, ex + ew - 13] as [number, number] }
                 return (
                   <rect key={side}
                     x={hx} y={hy} width={hw} height={hh}
                     fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
                     style={{ cursor: cur, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
                     onPointerDown={onPD}
-                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, onPointerDown: onPD })}
+                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, ...followOpts, onPointerDown: onPD })}
                   />
                 )
               })}
@@ -1080,18 +1197,26 @@ export function SpacePlanner({
           )
         })()}
 
-        {/* Handle overlay — hovered handle re-rendered on top for z-order accessibility */}
-        {handleOverlay && (
-          <rect
-            x={handleOverlay.x} y={handleOverlay.y}
-            width={handleOverlay.w} height={handleOverlay.h}
-            fill={handleOverlay.fill} stroke={handleOverlay.stroke} strokeWidth={handleOverlay.sw}
-            rx={HRADIUS}
-            style={{ cursor: handleOverlay.cursor }}
-            onPointerDown={handleOverlay.onPointerDown}
-            onPointerLeave={() => setHandleOverlay(null)}
-          />
-        )}
+        {/* Handle overlay — hovered handle re-rendered on top; position follows cursor along its edge */}
+        {handleOverlay && (() => {
+          const ox = handleOverlay.followXBounds && cursorPx
+            ? Math.max(handleOverlay.followXBounds[0], Math.min(handleOverlay.followXBounds[1], cursorPx.x)) - handleOverlay.w / 2
+            : handleOverlay.x
+          const oy = handleOverlay.followYBounds && cursorPx
+            ? Math.max(handleOverlay.followYBounds[0], Math.min(handleOverlay.followYBounds[1], cursorPx.y)) - handleOverlay.h / 2
+            : handleOverlay.y
+          return (
+            <rect
+              x={ox} y={oy}
+              width={handleOverlay.w} height={handleOverlay.h}
+              fill={handleOverlay.fill} stroke={handleOverlay.stroke} strokeWidth={handleOverlay.sw}
+              rx={HRADIUS}
+              style={{ cursor: handleOverlay.cursor }}
+              onPointerDown={handleOverlay.onPointerDown}
+              onPointerLeave={() => setHandleOverlay(null)}
+            />
+          )
+        })()}
 
         {/* Scale bar */}
         <g transform={`translate(12, ${svgH - 22})`} pointerEvents="none">

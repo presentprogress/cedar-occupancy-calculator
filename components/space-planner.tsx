@@ -317,8 +317,9 @@ export function SpacePlanner({
     const byType: Record<string, SpaceArea[]> = {}
     for (const s of spaces) {
       if (isWater(s.type)) continue
-      if (!byType[s.type]) byType[s.type] = []
-      byType[s.type].push(s)
+      const k = s.type + "\0" + s.name
+      if (!byType[k]) byType[k] = []
+      byType[k].push(s)
     }
     const groups: SpaceArea[][] = []
     for (const typeSpaces of Object.values(byType)) {
@@ -387,7 +388,7 @@ export function SpacePlanner({
       : { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
+    if (handle === "move") setHandleOverlay(null)
     selectRoom(id)
     setDrag({ kind: "room", id, handle, startFt: toFt(e), startLayout: { ...localLayouts[id] } })
   }
@@ -399,7 +400,7 @@ export function SpacePlanner({
       : { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
+    if (handle === "move") setHandleOverlay(null)
     selectEnclosure()
     setDrag({ kind: "enclosure", handle, startFt: toFt(e), startLayout: { ...localEnclosure } })
   }
@@ -422,10 +423,9 @@ export function SpacePlanner({
   }
 
   function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startW: number, startH: number) {
-    preDownSelRef.current = { room: null, equip: null, enclosure: false } // resize handle tap shouldn't deselect
+    preDownSelRef.current = { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
     setDrag({ kind: "equip-resize-fp", key, itemId, handle, startFt: toFt(e), startW, startH })
   }
 
@@ -433,7 +433,6 @@ export function SpacePlanner({
     preDownSelRef.current = { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
     setDrag({ kind: "equip-resize-zone", key, itemId, handle, startFt: toFt(e), startClearW, startClearH, fpW, fpH })
   }
 
@@ -544,7 +543,7 @@ export function SpacePlanner({
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  const HLONG = 26, HSHORT = 8, HRADIUS = 3
+  const HLONG = 26, HSHORT = 14, HRADIUS = 3
 
   return (
     <div className="relative overflow-auto" style={{ background: bgColor }}>
@@ -723,17 +722,18 @@ export function SpacePlanner({
           const sf = Math.round(layout.w * layout.h)
           const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
           const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          const isPoolDeck = space.type === "Pool Deck"
 
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
             <g key={space.id} onClick={e => { e.stopPropagation(); if (preDownSelRef.current.room === space.id) clearSelection() }}>
-              {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
+              {/* Room body — merged/pool-deck spaces render fill only; group overlay or auto-deck handles stroke */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
                 fill={colors.fill}
                 stroke={colors.stroke}
-                strokeWidth={isSel ? 2.5 : isMerged ? 0 : 1.5}
+                strokeWidth={isSel ? 2.5 : (isMerged || isPoolDeck) ? 0 : 1.5}
                 strokeDasharray={space.isConditioned ? undefined : "6 3"}
                 rx={3}
                 style={{ cursor: "grab" }}
@@ -794,35 +794,6 @@ export function SpacePlanner({
                   </text>
                 </g>
               )}
-
-              {/* Resize handles — only visible when selected; overlay follows cursor when hovered */}
-              {isSel && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
-                const isLR = side === "left" || side === "right"
-                const hx = side === "left" ? rx - HSHORT / 2
-                  : side === "right" ? rx + rw - HSHORT / 2
-                  : Math.max(rx, Math.min(rx + rw - HLONG, cx2 - HLONG / 2))
-                const hy = side === "top" ? ry - HSHORT / 2
-                  : side === "bottom" ? ry + rh - HSHORT / 2
-                  : Math.max(ry, Math.min(ry + rh - HLONG, cy2 - HLONG / 2))
-                const hw = isLR ? HSHORT : HLONG
-                const hh = isLR ? HLONG : HSHORT
-                const cursor = isLR ? "ew-resize" : "ns-resize"
-                const hkey = `r-${space.id}-${side}`
-                const isTop = handleOverlay?.key === hkey
-                const onPD = (e: React.PointerEvent<SVGRectElement>) => startRoomDrag(e, space.id, side)
-                const followOpts = isLR
-                  ? { followYBounds: [ry + HLONG / 2, ry + rh - HLONG / 2] as [number, number] }
-                  : { followXBounds: [rx + HLONG / 2, rx + rw - HLONG / 2] as [number, number] }
-                return (
-                  <rect key={side}
-                    x={hx} y={hy} width={hw} height={hh}
-                    fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
-                    style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                    onPointerDown={onPD}
-                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
-                  />
-                )
-              })}
 
               {/* Action buttons — top-right corner of selected room */}
               {isSel && (
@@ -1208,13 +1179,59 @@ export function SpacePlanner({
           )
         })()}
 
-        {/* Handle overlay — hovered handle re-rendered on top; position follows cursor along its edge */}
+        {/* ── Selected room resize handles — at high z so they're reachable when covered by merged rooms ── */}
+        {selected && (() => {
+          const space = spaces.find(s => s.id === selected)
+          if (!space) return null
+          const layout = localLayouts[space.id]
+          if (!layout) return null
+          const colors = palette[space.type] ?? fb
+          const rx = px(layout.x), ry = px(layout.y)
+          const rw = px(layout.w), rh = px(layout.h)
+          const cx2 = rx + rw / 2, cy2 = ry + rh / 2
+          const hFill = isDark ? "#1e293b" : "#fff"
+          return (["left","right","top","bottom"] as RoomHandle[]).map(side => {
+            const isLR = side === "left" || side === "right"
+            const hx = side === "left" ? rx - HSHORT / 2
+              : side === "right" ? rx + rw - HSHORT / 2
+              : Math.max(rx, Math.min(rx + rw - HLONG, cx2 - HLONG / 2))
+            const hy = side === "top" ? ry - HSHORT / 2
+              : side === "bottom" ? ry + rh - HSHORT / 2
+              : Math.max(ry, Math.min(ry + rh - HLONG, cy2 - HLONG / 2))
+            const hw = isLR ? HSHORT : HLONG
+            const hh = isLR ? HLONG : HSHORT
+            const cursor = isLR ? "ew-resize" : "ns-resize"
+            const hkey = `r-${space.id}-${side}`
+            const isTop = handleOverlay?.key === hkey
+            const onPD = (e: React.PointerEvent<SVGRectElement>) => startRoomDrag(e, space.id, side)
+            const followOpts = isLR
+              ? { followYBounds: [ry + HLONG / 2, ry + rh - HLONG / 2] as [number, number] }
+              : { followXBounds: [rx + HLONG / 2, rx + rw - HLONG / 2] as [number, number] }
+            return (
+              <rect key={`sel-handle-${side}`}
+                x={hx} y={hy} width={hw} height={hh}
+                fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
+                style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
+                onPointerDown={onPD}
+                onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
+              />
+            )
+          })
+        })()}
+
+        {/* Handle overlay — hovered handle re-rendered on top; position follows cursor along its edge.
+            During an active drag, skip bounds clamping so the handle tracks the cursor freely. */}
         {handleOverlay && (() => {
+          const inDrag = drag !== null
           const ox = handleOverlay.followXBounds && cursorPx
-            ? Math.max(handleOverlay.followXBounds[0], Math.min(handleOverlay.followXBounds[1], cursorPx.x)) - handleOverlay.w / 2
+            ? (inDrag
+                ? cursorPx.x - handleOverlay.w / 2
+                : Math.max(handleOverlay.followXBounds[0], Math.min(handleOverlay.followXBounds[1], cursorPx.x)) - handleOverlay.w / 2)
             : handleOverlay.x
           const oy = handleOverlay.followYBounds && cursorPx
-            ? Math.max(handleOverlay.followYBounds[0], Math.min(handleOverlay.followYBounds[1], cursorPx.y)) - handleOverlay.h / 2
+            ? (inDrag
+                ? cursorPx.y - handleOverlay.h / 2
+                : Math.max(handleOverlay.followYBounds[0], Math.min(handleOverlay.followYBounds[1], cursorPx.y)) - handleOverlay.h / 2)
             : handleOverlay.y
           return (
             <rect

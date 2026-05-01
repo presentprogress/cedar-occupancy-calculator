@@ -25,6 +25,7 @@ export interface SpaceArea {
   type: SpaceType
   squareFeet: number
   isConditioned: boolean
+  isOutdoor?: boolean         // default false (indoor); true forces isConditioned off
   impactsFAR?: boolean        // default true for rooms, false for non-rooms (water/deck)
   impactsOccupancy?: boolean  // default true; positive replacement for excludeFromOccupancy
   excludeFromOccupancy?: boolean // deprecated — kept for backward-compat with saved state
@@ -42,8 +43,7 @@ export interface EquipmentItem {
   id: string
   name: string
   footprint: number
-  accessSpace: number
-  sharedClearance?: number
+  accessInches: number  // uniform clearance offset on each side in inches (default 36 = 3ft)
   quantity: number
 }
 

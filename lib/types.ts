@@ -25,15 +25,25 @@ export interface SpaceArea {
   type: SpaceType
   squareFeet: number
   isConditioned: boolean
-  excludeFromOccupancy?: boolean
+  isOutdoor?: boolean         // default false (indoor); true forces isConditioned off
+  impactsFAR?: boolean        // default true for rooms, false for non-rooms (water/deck)
+  impactsOccupancy?: boolean  // default true; positive replacement for excludeFromOccupancy
+  excludeFromOccupancy?: boolean // deprecated — kept for backward-compat with saved state
+}
+
+/** Water surfaces and pool deck — cannot be conditioned, do not impact FAR by default. */
+export function isNonRoomType(type: SpaceType): boolean {
+  return type === "Swimming Pool (Water Surface)" ||
+         type === "Spa/Hot Tub (Water Surface)"   ||
+         type === "Cold Plunge (Water Surface)"   ||
+         type === "Pool Deck"
 }
 
 export interface EquipmentItem {
   id: string
   name: string
   footprint: number
-  accessSpace: number
-  sharedClearance?: number
+  accessInches: number  // uniform clearance offset on each side in inches (default 36 = 3ft)
   quantity: number
 }
 

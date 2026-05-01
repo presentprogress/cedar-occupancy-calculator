@@ -3,7 +3,7 @@
 import { useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { RotateCcw } from "lucide-react"
-import { IBC_LOAD_FACTORS, rectsOverlap } from "@/lib/types"
+import { IBC_LOAD_FACTORS, isNonRoomType, rectsOverlap } from "@/lib/types"
 import type { EquipmentItem, SpaceArea, SpaceLayout } from "@/lib/types"
 
 // ─── Scale & constants ────────────────────────────────────────────────────────
@@ -83,6 +83,11 @@ function isWater(t: string) {
 }
 function isGym(t: string) {
   return t === "Exercise Room (Equipment)" || t === "Exercise Room (Concentrated)"
+}
+// Includes adjacent (touching) rects, not just overlapping — needed for water-surface merging
+function rectsTouch(a: SpaceLayout, b: SpaceLayout): boolean {
+  return a.x <= b.x + b.w && a.x + a.w >= b.x &&
+         a.y <= b.y + b.h && a.y + a.h >= b.y
 }
 function getDims(item: EquipmentItem) {
   const fw = Math.sqrt(item.footprint)
@@ -171,6 +176,8 @@ type HandleOverlay = {
   key: string; x: number; y: number; w: number; h: number
   fill: string; stroke: string; sw: number; cursor: string
   onPointerDown?: (e: React.PointerEvent<SVGRectElement>) => void
+  followXBounds?: [number, number]  // cursor x clamped to this range; handle x = clamp - w/2
+  followYBounds?: [number, number]  // cursor y clamped to this range; handle y = clamp - h/2
 }
 
 // ─── Drag state ───────────────────────────────────────────────────────────────
@@ -198,6 +205,7 @@ interface SpacePlannerProps {
   onEquipResize?: (id: string, updates: Partial<EquipmentItem>) => void
   onEquipSizeChange?: (id: string, size: EquipSize) => void
   onDuplicate?: (spaceId: string) => void
+  onDeleteSpace?: (spaceId: string) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -205,9 +213,11 @@ export function SpacePlanner({
   spaces, equipment, spaceLayouts, enclosure,
   storedEquipPositions, storedEquipSizes, isDark,
   onSpaceResize, onEnclosureChange, onEquipPositionsChange,
-  onEquipResize, onEquipSizeChange, onDuplicate,
+  onEquipResize, onEquipSizeChange, onDuplicate, onDeleteSpace,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
+  // Selection state captured at pointerdown — lets onClick know if element was already selected
+  const preDownSelRef = useRef<{ room: string|null; equip: string|null; enclosure: boolean }>({ room: null, equip: null, enclosure: false })
   const [drag, setDrag] = useState<Drag | null>(null)
   const [selected, setSelected] = useState<string | null>(null)           // room ID
   const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
@@ -225,6 +235,8 @@ export function SpacePlanner({
   const [equipSizes, setEquipSizes] = useState<Record<string, EquipSize>>(storedEquipSizes ?? {})
   // Handle overlay: the hovered handle is re-rendered on top so overlapping handles remain accessible
   const [handleOverlay, setHandleOverlay] = useState<HandleOverlay | null>(null)
+  // Cursor position in SVG pixels — used to slide handles along their edge toward the cursor
+  const [cursorPx, setCursorPx] = useState<{x: number; y: number} | null>(null)
 
   // Sync when parent loads a saved version
   const prevLayouts = useRef(spaceLayouts)
@@ -291,7 +303,7 @@ export function SpacePlanner({
         for (const other of waterSpaces) {
           if (seen.has(other.id)) continue
           const lo = localLayouts[other.id]
-          if (lo && rectsOverlap(lc, lo)) { group.push(other); seen.add(other.id) }
+          if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
         }
       }
       if (group.length > 1) groups.push(group)
@@ -304,6 +316,45 @@ export function SpacePlanner({
     for (const g of waterGroups) for (const s of g) ids.add(s.id)
     return ids
   }, [waterGroups])
+
+  // Overlapping same-type groups for non-water rooms (connected components per type)
+  const nonWaterTypeGroups = useMemo(() => {
+    const byType: Record<string, SpaceArea[]> = {}
+    for (const s of spaces) {
+      if (isWater(s.type)) continue
+      const k = s.type + "\0" + s.name
+      if (!byType[k]) byType[k] = []
+      byType[k].push(s)
+    }
+    const groups: SpaceArea[][] = []
+    for (const typeSpaces of Object.values(byType)) {
+      const seen = new Set<string>()
+      for (const s of typeSpaces) {
+        if (seen.has(s.id)) continue
+        const la = localLayouts[s.id]
+        if (!la) { seen.add(s.id); continue }
+        const group = [s]; seen.add(s.id)
+        let qi = 0
+        while (qi < group.length) {
+          const lc = localLayouts[group[qi++].id]
+          if (!lc) continue
+          for (const other of typeSpaces) {
+            if (seen.has(other.id)) continue
+            const lo = localLayouts[other.id]
+            if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
+          }
+        }
+        if (group.length > 1) groups.push(group)
+      }
+    }
+    return groups
+  }, [spaces, localLayouts])
+
+  const mergedNonWaterIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const g of nonWaterTypeGroups) for (const s of g) ids.add(s.id)
+    return ids
+  }, [nonWaterTypeGroups])
 
   // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
@@ -336,23 +387,31 @@ export function SpacePlanner({
   }
 
   function startRoomDrag(e: React.PointerEvent<SVGElement>, id: string, handle: RoomHandle) {
+    // Capture pre-down selection only for body moves; resize handles shouldn't trigger deselect on tap
+    preDownSelRef.current = handle === "move"
+      ? { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
+      : { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
+    if (handle === "move") setHandleOverlay(null)
     selectRoom(id)
     setDrag({ kind: "room", id, handle, startFt: toFt(e), startLayout: { ...localLayouts[id] } })
   }
 
   function startEnclosureDrag(e: React.PointerEvent<SVGElement>, handle: RoomHandle) {
     if (!localEnclosure) return
+    preDownSelRef.current = handle === "move"
+      ? { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
+      : { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
+    if (handle === "move") setHandleOverlay(null)
     selectEnclosure()
     setDrag({ kind: "enclosure", handle, startFt: toFt(e), startLayout: { ...localEnclosure } })
   }
 
   function startEquipZoneDrag(e: React.PointerEvent<SVGElement>, key: IKey) {
+    preDownSelRef.current = { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     selectEquip(key)
@@ -360,6 +419,7 @@ export function SpacePlanner({
   }
 
   function startEquipFpDrag(e: React.PointerEvent<SVGElement>, key: IKey, borderX: number, borderY: number) {
+    preDownSelRef.current = { room: selected, equip: selectedEquip, enclosure: selectedEnclosure }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     selectEquip(key)
@@ -368,20 +428,24 @@ export function SpacePlanner({
   }
 
   function startEquipResizeFp(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startW: number, startH: number) {
+    preDownSelRef.current = { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
     setDrag({ kind: "equip-resize-fp", key, itemId, handle, startFt: toFt(e), startW, startH })
   }
 
   function startEquipResizeZone(e: React.PointerEvent<SVGElement>, key: IKey, itemId: string, handle: "right"|"bottom", startClearW: number, startClearH: number, fpW: number, fpH: number) {
+    preDownSelRef.current = { room: null, equip: null, enclosure: false }
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setHandleOverlay(null)
     setDrag({ kind: "equip-resize-zone", key, itemId, handle, startFt: toFt(e), startClearW, startClearH, fpW, fpH })
   }
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (selected || selectedEquip || selectedEnclosure || drag) {
+      const r = svgRef.current!.getBoundingClientRect()
+      setCursorPx({ x: e.clientX - r.left, y: e.clientY - r.top })
+    }
     if (!drag) return
     const ft = toFt(e)
     const dx = snap(ft.x - drag.startFt.x)
@@ -484,7 +548,8 @@ export function SpacePlanner({
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  const HLONG = 26, HSHORT = 8, HRADIUS = 3
+  const HLONG = 26, HSHORT = 8, HSHORT_HIT = 14, HRADIUS = 3
+  const INNER_INSET = 4  // px — inner border ring inset for double-line room rendering
 
   return (
     <div className="relative overflow-auto" style={{ background: bgColor }}>
@@ -503,8 +568,8 @@ export function SpacePlanner({
         className="block select-none"
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerLeave={onUp}
-        onClick={() => clearSelection()}
+        onPointerLeave={e => { onUp(); setCursorPx(null) }}
+        onClick={clearSelection}
       >
         <defs>
           <pattern id="g1" width={PX} height={PX} patternUnits="userSpaceOnUse">
@@ -535,6 +600,7 @@ export function SpacePlanner({
         {/* ── Pool deck rings — per-pool expanded rings, masked to true 3' contour ── */}
         {(() => {
           const waterSpaces = spaces.filter(s => isWater(s.type))
+          const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
           const seen = new Set<string>()
           const groups: SpaceArea[][] = []
           for (const s of waterSpaces) {
@@ -544,7 +610,7 @@ export function SpacePlanner({
             for (const o of waterSpaces) {
               if (seen.has(o.id)) continue
               const lb = localLayouts[o.id]
-              if (la && lb && rectsOverlap(la, lb)) { group.push(o); seen.add(o.id) }
+              if (la && lb && rectsTouch(la, lb)) { group.push(o); seen.add(o.id) }
             }
             groups.push(group)
           }
@@ -584,9 +650,8 @@ export function SpacePlanner({
             const labelX = rlx + rlw / 2
             const maskId = `dm-${gi}`
 
-            const filterId = `df${gi}`
             return (
-              <g key={`deck-grp-${gi}`} pointerEvents="none">
+              <g key={`deck-grp-${gi}`} pointerEvents="none" opacity={hasManualPoolDeck ? 0.35 : 1}>
                 <defs>
                   <mask id={maskId}>
                     {ls.map((l, li) => (
@@ -602,53 +667,65 @@ export function SpacePlanner({
                         fill="black" />
                     ))}
                   </mask>
-                  {/* Filter: dilate shape → subtract original → amber border ring */}
-                  <filter id={filterId} x="-6%" y="-6%" width="112%" height="112%" colorInterpolationFilters="sRGB">
-                    <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
-                    <feComposite in="dilated" in2="SourceAlpha" operator="out" result="borderAlpha"/>
-                    <feFlood floodColor="#d97706" result="col"/>
-                    <feComposite in="col" in2="borderAlpha" operator="in" result="border"/>
-                    <feMerge>
-                      <feMergeNode in="SourceGraphic"/>
-                      <feMergeNode in="border"/>
-                    </feMerge>
-                  </filter>
+                  {/* Outer stroke masks: white everywhere, other expanded rects blacked out (+2px) */}
+                  {expanded.map((_, ei) => (
+                    <mask key={`sm-${ei}`} id={`${maskId}-s${ei}`}>
+                      <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                      {expanded.filter((_,j) => j !== ei).map((e, j) => (
+                        <rect key={j} fill="black"
+                          x={px(e.x)-2} y={px(e.y)-2}
+                          width={px(e.w)+4} height={px(e.h)+4}/>
+                      ))}
+                    </mask>
+                  ))}
                 </defs>
 
-                {/* Amber fill masked to true 3' contour, with contour-following border via filter */}
+                {/* Amber fill masked to true 3' contour */}
                 <rect x={mx} y={my} width={mw} height={mh}
                   fill={deckFill} fillOpacity={deckOpacity}
-                  mask={`url(#${maskId})`}
-                  filter={`url(#${filterId})`} />
+                  mask={`url(#${maskId})`} />
+                {/* Solid amber stroke — outer boundary of deck, shared edges masked */}
+                {expanded.map((e, ei) => (
+                  <rect key={`ds-${ei}`}
+                    x={px(e.x)} y={px(e.y)} width={px(e.w)} height={px(e.h)}
+                    fill="none" stroke={deckStroke} strokeWidth={1.5} rx={3}
+                    mask={`url(#${maskId}-s${ei})`}/>
+                ))}
 
                 <g pointerEvents="none" fontFamily="'Geist Mono',monospace"
                   fill={isDark ? "#fbbf24" : "#92400e"}>
-                  {/* SF at top — matches room name/SF position */}
                   <text x={labelX} y={rly + 12}
                     textAnchor="middle" fontSize={7.5}>
-                    Pool Deck (Auto)
+                    {hasManualPoolDeck ? "Auto Deck (ref)" : "Pool Deck (Auto)"}
                   </text>
                   <text x={labelX} y={rly + 22}
                     textAnchor="middle" fontSize={7.5} opacity={0.7}>
                     {deckSF.toLocaleString()} SF
                   </text>
-                  {/* Occ at bottom — matches room occ position */}
-                  <text x={labelX} y={rly + rlh - 14}
-                    textAnchor="middle" fontSize={16} fontWeight="800">
-                    {deckOcc}
-                  </text>
-                  <text x={labelX} y={rly + rlh - 4}
-                    textAnchor="middle" fontSize={6.5} opacity={0.5}>
-                    OCC
-                  </text>
+                  {!hasManualPoolDeck && (
+                    <>
+                      <text x={labelX} y={rly + rlh - 14}
+                        textAnchor="middle" fontSize={16} fontWeight="800">
+                        {deckOcc}
+                      </text>
+                      <text x={labelX} y={rly + rlh - 4}
+                        textAnchor="middle" fontSize={6.5} opacity={0.5}>
+                        OCC
+                      </text>
+                    </>
+                  )}
                 </g>
               </g>
             )
           })
         })()}
 
-        {/* ── ROOMS ── */}
-        {spaces.map(space => {
+        {/* ── ROOMS — larger areas rendered first (lower z) ── */}
+        {[...spaces].sort((a, b) => {
+          const la = localLayouts[a.id], lb = localLayouts[b.id]
+          if (!la || !lb) return 0
+          return (lb.w * lb.h) - (la.w * la.h)
+        }).map(space => {
           const layout = localLayouts[space.id]
           if (!layout) return null
           const colors = palette[space.type] ?? fb
@@ -658,23 +735,31 @@ export function SpacePlanner({
           const isSel = selected === space.id
           const sf = Math.round(layout.w * layout.h)
           const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
-          const isMerged = mergedWaterIds.has(space.id)
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          const isPoolDeck = space.type === "Pool Deck"
 
           const hFill = isDark ? "#1e293b" : "#fff"
 
           return (
-            <g key={space.id}>
-              {/* Room body — merged water spaces render fill only; group overlay handles stroke */}
+            <g key={space.id} onClick={e => { e.stopPropagation(); if (preDownSelRef.current.room === space.id) clearSelection() }}>
+              {/* Room body — fill only; strokes rendered in separate passes for correct z-order */}
               <rect
                 x={rx} y={ry} width={rw} height={rh}
-                fill={colors.fill}
-                stroke={colors.stroke}
-                strokeWidth={isSel ? 2.5 : isMerged ? 0 : 1.5}
-                strokeDasharray={space.isConditioned ? undefined : "6 3"}
+                fill={colors.fill} stroke="none"
                 rx={3}
                 style={{ cursor: "grab" }}
                 onPointerDown={e => startRoomDrag(e, space.id, "move")}
               />
+              {/* FAR band — tinted strip between outer+inner border lines (conditioned FAR rooms only) */}
+              {space.isConditioned && !isMerged && !isPoolDeck && (space.impactsFAR ?? !isNonRoomType(space.type)) && (
+                <>
+                  <rect x={rx} y={ry} width={rw} height={rh}
+                    fill={colors.stroke} fillOpacity={0.10} rx={3} pointerEvents="none" />
+                  <rect x={rx + INNER_INSET} y={ry + INNER_INSET}
+                    width={Math.max(0, rw - INNER_INSET * 2)} height={Math.max(0, rh - INNER_INSET * 2)}
+                    fill={colors.fill} rx={Math.max(0, 3 - INNER_INSET)} pointerEvents="none" />
+                </>
+              )}
 
               {/* Conditioned accent bar — hidden for merged water (group overlay handles boundary) */}
               {space.isConditioned && !isMerged && (
@@ -682,8 +767,8 @@ export function SpacePlanner({
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels — hide SF and occ for merged water; group overlay shows combined values */}
-              {rw > 28 && rh > 20 && (
+              {/* Labels — suppressed entirely for merged rooms; group overlay shows combined values */}
+              {!isMerged && rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
                   <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
                     textAnchor="middle"
@@ -691,7 +776,7 @@ export function SpacePlanner({
                     fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
                     {rw > 80 ? space.name : space.name.split(" ")[0]}
                   </text>
-                  {!isMerged && rh > 44 && rw > 40 && (
+                  {rh > 44 && rw > 40 && (
                     <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
                       textAnchor="middle"
                       fontSize={Math.min(10, Math.max(7, rw / 14))}
@@ -699,15 +784,13 @@ export function SpacePlanner({
                       {sf.toLocaleString()} SF
                     </text>
                   )}
-                  {!isMerged && (
-                    <text x={cx2} y={ry + rh - 14}
-                      textAnchor="middle"
-                      fontSize={Math.min(16, Math.max(9, rw / 5.5))}
-                      fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
-                      {occ}
-                    </text>
-                  )}
-                  {!isMerged && rw > 36 && (
+                  <text x={cx2} y={ry + rh - 14}
+                    textAnchor="middle"
+                    fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                    fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                    {occ}
+                  </text>
+                  {rw > 36 && (
                     <text x={cx2} y={ry + rh - 4}
                       textAnchor="middle" fontSize={6.5}
                       fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
@@ -733,47 +816,54 @@ export function SpacePlanner({
                 </g>
               )}
 
-              {/* Resize handles — only visible when selected */}
-              {isSel && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
-                const hx = side === "left" ? rx - HSHORT / 2
-                  : side === "right" ? rx + rw - HSHORT / 2
-                  : cx2 - HLONG / 2
-                const hy = side === "top" ? ry - HSHORT / 2
-                  : side === "bottom" ? ry + rh - HSHORT / 2
-                  : cy2 - HLONG / 2
-                const hw = (side === "top" || side === "bottom") ? HLONG : HSHORT
-                const hh = (side === "left" || side === "right") ? HLONG : HSHORT
-                const cursor = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
-                const hkey = `r-${space.id}-${side}`
-                const isTop = handleOverlay?.key === hkey
-                const onPD = (e: React.PointerEvent<SVGRectElement>) => startRoomDrag(e, space.id, side)
-                return (
-                  <rect key={side}
-                    x={hx} y={hy} width={hw} height={hh}
-                    fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
-                    style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                    onPointerDown={onPD}
-                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, onPointerDown: onPD })}
-                  />
-                )
-              })}
-
-              {/* Duplicate button — top-right corner of selected room */}
-              {isSel && onDuplicate && (
-                <g style={{ cursor: "pointer" }}
-                  onPointerDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
-                  <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
-                    fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
-                  <text x={rx + rw - 15} y={ry + 15} textAnchor="middle" fontSize={11}
-                    fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">
-                    ⧉
-                  </text>
+              {/* Action buttons — top-right corner of selected room */}
+              {isSel && (
+                <g pointerEvents="all">
+                  {onDuplicate && (
+                    <g style={{ cursor: "pointer" }}
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); onDuplicate(space.id) }}>
+                      <rect x={rx + rw - 26} y={ry + 3} width={22} height={18} rx={3}
+                        fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
+                      <text x={rx + rw - 15} y={ry + 15} textAnchor="middle" fontSize={11}
+                        fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">⧉</text>
+                    </g>
+                  )}
+                  {onDeleteSpace && (
+                    <g style={{ cursor: "pointer" }}
+                      onPointerDown={e => e.stopPropagation()}
+                      onClick={e => { e.stopPropagation(); clearSelection(); onDeleteSpace(space.id) }}>
+                      <rect x={rx + rw - 52} y={ry + 3} width={22} height={18} rx={3}
+                        fill={hFill} fillOpacity={0.93} stroke={colors.stroke} strokeWidth={1} />
+                      <text x={rx + rw - 41} y={ry + 15} textAnchor="middle" fontSize={13}
+                        fill={colors.stroke} pointerEvents="none" fontFamily="system-ui,sans-serif">×</text>
+                    </g>
+                  )}
                 </g>
               )}
             </g>
           )
         })}
+
+        {/*
+          ── CANONICAL GROUP-OVERLAY PATTERN (used by BOTH waterGroups AND nonWaterTypeGroups) ──
+          Two SVG masks per rect (ri) achieve clean merged-room rendering:
+
+          Outer mask  (id=`${maskBase}-m${ri}`)
+            • Canvas starts WHITE (stroke visible everywhere)
+            • Each OTHER rect is blacked out with a +2px buffer
+            • Effect: only the external boundary of rect ri renders; internal shared edges are hidden
+
+          Inner mask  (id=`${maskBase}-im${ri}`)
+            • Canvas starts BLACK (stroke hidden everywhere)
+            • Each OTHER rect is whited out (no buffer)
+            • Effect: dashed strokes only appear INSIDE the shared overlap zone
+
+          Label: SF then occ, centred on the true overlap zone (falls back to bounding-box centre)
+
+          ⚠️  If you change one section you MUST change the other to match.
+          ─────────────────────────────────────────────────────────────────────────────────────────
+        */}
 
         {/* ── Water group combined outlines + combined label ── */}
         {waterGroups.map((group, gi) => {
@@ -844,6 +934,147 @@ export function SpacePlanner({
           )
         })}
 
+        {/* ── Non-water same-type group combined outlines + combined label ── (⚠️ keep in sync with waterGroups above — canonical pattern) */}
+        {nonWaterTypeGroups.map((group, gi) => {
+          const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
+          if (ls.length < 2) return null
+          const colors = palette[group[0].type] ?? fb
+          const loadFactor = IBC_LOAD_FACTORS[group[0].type] ?? 100
+          const maskBase = `tg${gi}`
+          const unionSF = Math.round(rectUnionAreaFt(ls))
+          const unionOcc = Math.ceil(unionSF / loadFactor)
+          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
+          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          // Centre label on the intersection (overlap) of all rects; fall back to bounding box
+          const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
+          const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
+          const hasOverlap = ox0 < ox1 && oy0 < oy1
+          const labelX = px(hasOverlap ? (ox0+ox1)/2 : (bx0+bx1)/2)
+          const labelY = px(hasOverlap ? (oy0+oy1)/2 : (by0+by1)/2)
+          return (
+            <g key={`tg-${gi}`} pointerEvents="none">
+              <defs>
+                {ls.map((_, ri) => (
+                  <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
+                    {/* Outer stroke mask: white everywhere except other rects (+ 2px buffer) */}
+                    <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="black"
+                        x={px(l.x)-2} y={px(l.y)-2}
+                        width={px(l.w)+4} height={px(l.h)+4}/>
+                    ))}
+                  </mask>
+                ))}
+                {ls.map((_, ri) => (
+                  <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
+                    {/* Inner dash mask: black everywhere except inside the other rects */}
+                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                    {ls.filter((_,j) => j !== ri).map((l, j) => (
+                      <rect key={j} fill="white"
+                        x={px(l.x)} y={px(l.y)}
+                        width={px(l.w)} height={px(l.h)}/>
+                    ))}
+                  </mask>
+                ))}
+              </defs>
+              {/* Outer boundary strokes — masked to hide the internal edges */}
+              {ls.map((l, ri) => (
+                <rect key={`outer-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
+                  mask={`url(#${maskBase}-m${ri})`}/>
+              ))}
+              {/* Inner dashes — show only inside the overlap zone, lightly distinguish bodies */}
+              {ls.map((l, ri) => (
+                <rect key={`dash-${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  strokeDasharray="6 5" opacity={0.28} rx={3}
+                  mask={`url(#${maskBase}-im${ri})`}/>
+              ))}
+              {/* Combined SF + occ label centred on the overlap zone */}
+              <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
+                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+                  {unionSF.toLocaleString()} SF
+                </tspan>
+                <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
+                <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
+              </text>
+            </g>
+          )
+        })}
+
+        {/* ── Unconditioned room stroke pass — dashed outer + dashed inner
+            Excludes: merged rooms, pool deck (→ solid pass), water surfaces (→ own pass) ── */}
+        {spaces.map(space => {
+          const layout = localLayouts[space.id]
+          if (!layout || space.isConditioned) return null
+          if (isWater(space.type) || space.type === "Pool Deck") return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          if (isMerged) return null
+          const colors = palette[space.type] ?? fb
+          const isSel = selected === space.id
+          const rx2 = px(layout.x), ry2 = px(layout.y)
+          const rw2 = px(layout.w), rh2 = px(layout.h)
+          const sw = isSel ? 2.5 : 1.5
+          return (
+            <g key={`unc-${space.id}`} pointerEvents="none">
+              <rect x={rx2} y={ry2} width={rw2} height={rh2}
+                fill="none" stroke={colors.stroke} strokeWidth={sw} strokeDasharray="6 3" rx={3}/>
+              {rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
+                <rect x={rx2 + INNER_INSET} y={ry2 + INNER_INSET}
+                  width={rw2 - INNER_INSET * 2} height={rh2 - INNER_INSET * 2}
+                  fill="none" stroke={colors.stroke} strokeWidth={1} strokeDasharray="6 3"
+                  opacity={0.45} rx={Math.max(0, 3 - INNER_INSET)}/>
+              )}
+            </g>
+          )
+        })}
+
+        {/* ── Non-merged water surface stroke pass — solid outer only, no inner ring ── */}
+        {spaces.map(space => {
+          if (!isWater(space.type)) return null
+          const layout = localLayouts[space.id]
+          if (!layout || mergedWaterIds.has(space.id)) return null
+          const colors = palette[space.type] ?? fb
+          const isSel = selected === space.id
+          return (
+            <rect key={`ws-${space.id}`}
+              x={px(layout.x)} y={px(layout.y)} width={px(layout.w)} height={px(layout.h)}
+              fill="none" stroke={colors.stroke} strokeWidth={isSel ? 2.5 : 1.5} rx={3}
+              pointerEvents="none" />
+          )
+        })}
+
+        {/* ── Conditioned + pool deck solid-stroke pass — solid outer + solid inner, above dashes at colinear edges
+            Pool deck gets outer only (no inner ring — it's not a room). ── */}
+        {spaces.map(space => {
+          const layout = localLayouts[space.id]
+          if (!layout) return null
+          const isPoolDeck = space.type === "Pool Deck"
+          if (!space.isConditioned && !isPoolDeck) return null
+          if (isWater(space.type)) return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          if (isMerged) return null
+          const colors = palette[space.type] ?? fb
+          const isSel = selected === space.id
+          const rx2 = px(layout.x), ry2 = px(layout.y)
+          const rw2 = px(layout.w), rh2 = px(layout.h)
+          const sw = isSel ? 2.5 : 1.5
+          return (
+            <g key={`solid-${space.id}`} pointerEvents="none">
+              <rect x={rx2} y={ry2} width={rw2} height={rh2}
+                fill="none" stroke={colors.stroke} strokeWidth={sw} rx={3}/>
+              {!isPoolDeck && rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
+                <rect x={rx2 + INNER_INSET} y={ry2 + INNER_INSET}
+                  width={rw2 - INNER_INSET * 2} height={rh2 - INNER_INSET * 2}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  opacity={0.45} rx={Math.max(0, 3 - INNER_INSET)}/>
+              )}
+            </g>
+          )
+        })}
+
         {/* ── EQUIPMENT (on top of rooms) ── */}
         {instances.map(({ key, item, color, label, unitSF }) => {
           const pos = equipPos[key]
@@ -864,7 +1095,7 @@ export function SpacePlanner({
           const hasClearance = clearW > fw || clearH > fh
 
           return (
-            <g key={key} onClick={() => selectedEquip === key ? clearSelection() : selectEquip(key)}>
+            <g key={key} onClick={e => { e.stopPropagation(); if (preDownSelRef.current.equip === key) clearSelection() }}>
               {/* Clearance zone — drag to move whole unit */}
               <rect
                 x={clearX} y={clearY} width={clW} height={clH}
@@ -912,39 +1143,55 @@ export function SpacePlanner({
                   </>}
                 </g>
               )}
-              {/* Footprint resize handles: right edge + bottom edge */}
+              {/* Footprint resize handles: right edge + bottom edge — overlay follows cursor when hovered */}
               {isSel && (() => {
                 const handles = [
-                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,      y: fpY + fpH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
-                  { hkey: `ef-${key}-bottom`, x: fpX + fpW / 2 - 13, y: fpY + fpH - 4,      w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
+                  { hkey: `ef-${key}-right`,  x: fpX + fpW - 4,         y: fpY + fpH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, followOpts: { followYBounds: [fpY + 13, fpY + fpH - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "right",  fw, fh) } },
+                  { hkey: `ef-${key}-bottom`, x: fpX + fpW / 2 - 13, y: fpY + fpH - 4,         w: 26, h: 8,  cursor: "ns-resize" as const, followOpts: { followXBounds: [fpX + 13, fpX + fpW - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeFp(e, key, item.id, "bottom", fw, fh) } },
                 ]
-                return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
+                return handles.map(({ hkey, x, y, w, h, cursor, followOpts, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
+                  const isEW = cursor === "ew-resize"
                   return (
-                    <rect key={hkey} x={x} y={y} width={w} height={h}
-                      fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
-                      style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                      onPointerDown={onPD}
-                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, onPointerDown: onPD })}
-                    />
+                    <g key={hkey} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                      <rect
+                        x={isEW ? x - Math.floor((HSHORT_HIT - w) / 2) : x}
+                        y={isEW ? y : y - Math.floor((HSHORT_HIT - h) / 2)}
+                        width={isEW ? HSHORT_HIT : w} height={isEW ? h : HSHORT_HIT}
+                        fill="transparent" strokeWidth={0} style={{ cursor }}
+                        onPointerDown={onPD}
+                        onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
+                      />
+                      <rect x={x} y={y} width={w} height={h}
+                        fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                        pointerEvents="none" />
+                    </g>
                   )
                 })
               })()}
-              {/* Clearance zone resize handles: right edge + bottom edge */}
+              {/* Clearance zone resize handles: right edge + bottom edge — overlay follows cursor when hovered */}
               {isSel && hasClearance && (() => {
                 const handles = [
-                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4,      y: clearY + clH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
-                  { hkey: `ez-${key}-bottom`, x: clearX + clW / 2 - 13, y: clearY + clH - 4,      w: 26, h: 8,  cursor: "ns-resize" as const, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-right`,  x: clearX + clW - 4,         y: clearY + clH / 2 - 13, w: 8,  h: 26, cursor: "ew-resize" as const, followOpts: { followYBounds: [clearY + 13, clearY + clH - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "right",  clearW, clearH, fw, fh) } },
+                  { hkey: `ez-${key}-bottom`, x: clearX + clW / 2 - 13, y: clearY + clH - 4,         w: 26, h: 8,  cursor: "ns-resize" as const, followOpts: { followXBounds: [clearX + 13, clearX + clW - 13] as [number, number] }, onPD: (e: React.PointerEvent<SVGRectElement>) => { e.stopPropagation(); startEquipResizeZone(e, key, item.id, "bottom", clearW, clearH, fw, fh) } },
                 ]
-                return handles.map(({ hkey, x, y, w, h, cursor, onPD }) => {
+                return handles.map(({ hkey, x, y, w, h, cursor, followOpts, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
+                  const isEW = cursor === "ew-resize"
                   return (
-                    <rect key={hkey} x={x} y={y} width={w} height={h}
-                      fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
-                      style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                      onPointerDown={onPD}
-                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, onPointerDown: onPD })}
-                    />
+                    <g key={hkey} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                      <rect
+                        x={isEW ? x - Math.floor((HSHORT_HIT - w) / 2) : x}
+                        y={isEW ? y : y - Math.floor((HSHORT_HIT - h) / 2)}
+                        width={isEW ? HSHORT_HIT : w} height={isEW ? h : HSHORT_HIT}
+                        fill="transparent" strokeWidth={0} style={{ cursor }}
+                        onPointerDown={onPD}
+                        onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, ...followOpts, onPointerDown: onPD })}
+                      />
+                      <rect x={x} y={y} width={w} height={h}
+                        fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                        pointerEvents="none" />
+                    </g>
                   )
                 })
               })()}
@@ -961,7 +1208,7 @@ export function SpacePlanner({
           const encStroke = isDark ? "#94a3b8" : "#475569"
           const hFill = isDark ? "#1e293b" : "#fff"
           return (
-            <g key="enclosure">
+            <g key="enclosure" onClick={e => { e.stopPropagation(); if (preDownSelRef.current.enclosure) clearSelection() }}>
               <rect
                 x={ex} y={ey} width={ew} height={eh}
                 fill="none"
@@ -977,26 +1224,36 @@ export function SpacePlanner({
                 FACILITY BOUNDARY
               </text>
               {selectedEnclosure && (["left","right","top","bottom"] as RoomHandle[]).map(side => {
+                const isLR = side === "left" || side === "right"
                 const hx = side === "left" ? ex - 4
                   : side === "right" ? ex + ew - 4
-                  : ecx - 13
+                  : Math.max(ex, Math.min(ex + ew - 26, ecx - 13))
                 const hy = side === "top" ? ey - 4
                   : side === "bottom" ? ey + eh - 4
-                : ecy - 13
-                const hw = (side === "top" || side === "bottom") ? 26 : 8
-                const hh = (side === "left" || side === "right") ? 26 : 8
-                const cur = (side === "left" || side === "right") ? "ew-resize" : "ns-resize"
+                  : Math.max(ey, Math.min(ey + eh - 26, ecy - 13))
+                const hw = isLR ? 8 : 26
+                const hh = isLR ? 26 : 8
+                const cur = isLR ? "ew-resize" : "ns-resize"
                 const hkey = `enc-${side}`
                 const isTop = handleOverlay?.key === hkey
                 const onPD = (e: React.PointerEvent<SVGRectElement>) => startEnclosureDrag(e, side)
+                const followOpts = isLR
+                  ? { followYBounds: [ey + 13, ey + eh - 13] as [number, number] }
+                  : { followXBounds: [ex + 13, ex + ew - 13] as [number, number] }
                 return (
-                  <rect key={side}
-                    x={hx} y={hy} width={hw} height={hh}
-                    fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
-                    style={{ cursor: cur, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                    onPointerDown={onPD}
-                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, onPointerDown: onPD })}
-                  />
+                  <g key={side} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                    <rect
+                      x={isLR ? hx - Math.floor((HSHORT_HIT - hw) / 2) : hx}
+                      y={isLR ? hy : hy - Math.floor((HSHORT_HIT - hh) / 2)}
+                      width={isLR ? HSHORT_HIT : hw} height={isLR ? hh : HSHORT_HIT}
+                      fill="transparent" strokeWidth={0} style={{ cursor: cur }}
+                      onPointerDown={onPD}
+                      onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, ...followOpts, onPointerDown: onPD })}
+                    />
+                    <rect x={hx} y={hy} width={hw} height={hh}
+                      fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
+                      pointerEvents="none" />
+                  </g>
                 )
               })}
 
@@ -1066,18 +1323,80 @@ export function SpacePlanner({
           )
         })()}
 
-        {/* Handle overlay — hovered handle re-rendered on top for z-order accessibility */}
-        {handleOverlay && (
-          <rect
-            x={handleOverlay.x} y={handleOverlay.y}
-            width={handleOverlay.w} height={handleOverlay.h}
-            fill={handleOverlay.fill} stroke={handleOverlay.stroke} strokeWidth={handleOverlay.sw}
-            rx={HRADIUS}
-            style={{ cursor: handleOverlay.cursor }}
-            onPointerDown={handleOverlay.onPointerDown}
-            onPointerLeave={() => setHandleOverlay(null)}
-          />
-        )}
+        {/* ── Selected room resize handles — at high z so they're reachable when covered by merged rooms ── */}
+        {selected && (() => {
+          const space = spaces.find(s => s.id === selected)
+          if (!space) return null
+          const layout = localLayouts[space.id]
+          if (!layout) return null
+          const colors = palette[space.type] ?? fb
+          const rx = px(layout.x), ry = px(layout.y)
+          const rw = px(layout.w), rh = px(layout.h)
+          const cx2 = rx + rw / 2, cy2 = ry + rh / 2
+          const hFill = isDark ? "#1e293b" : "#fff"
+          return (["left","right","top","bottom"] as RoomHandle[]).map(side => {
+            const isLR = side === "left" || side === "right"
+            const hx = side === "left" ? rx - HSHORT / 2
+              : side === "right" ? rx + rw - HSHORT / 2
+              : Math.max(rx, Math.min(rx + rw - HLONG, cx2 - HLONG / 2))
+            const hy = side === "top" ? ry - HSHORT / 2
+              : side === "bottom" ? ry + rh - HSHORT / 2
+              : Math.max(ry, Math.min(ry + rh - HLONG, cy2 - HLONG / 2))
+            const hw = isLR ? HSHORT : HLONG
+            const hh = isLR ? HLONG : HSHORT
+            const cursor = isLR ? "ew-resize" : "ns-resize"
+            const hkey = `r-${space.id}-${side}`
+            const isTop = handleOverlay?.key === hkey
+            const onPD = (e: React.PointerEvent<SVGRectElement>) => startRoomDrag(e, space.id, side)
+            const followOpts = isLR
+              ? { followYBounds: [ry + HLONG / 2, ry + rh - HLONG / 2] as [number, number] }
+              : { followXBounds: [rx + HLONG / 2, rx + rw - HLONG / 2] as [number, number] }
+            return (
+              <g key={`sel-handle-${side}`} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                {/* Larger transparent hit area */}
+                <rect
+                  x={isLR ? hx - (HSHORT_HIT - HSHORT) / 2 : hx}
+                  y={isLR ? hy : hy - (HSHORT_HIT - HSHORT) / 2}
+                  width={isLR ? HSHORT_HIT : hw} height={isLR ? hh : HSHORT_HIT}
+                  fill="transparent" strokeWidth={0} style={{ cursor }}
+                  onPointerDown={onPD}
+                  onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
+                />
+                {/* Visual pill — HSHORT wide so it doesn't look "big" */}
+                <rect x={hx} y={hy} width={hw} height={hh}
+                  fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
+                  pointerEvents="none" />
+              </g>
+            )
+          })
+        })()}
+
+        {/* Handle overlay — hovered handle re-rendered on top; position follows cursor along its edge.
+            During an active drag, skip bounds clamping so the handle tracks the cursor freely. */}
+        {handleOverlay && (() => {
+          const inDrag = drag !== null
+          const ox = handleOverlay.followXBounds && cursorPx
+            ? (inDrag
+                ? cursorPx.x - handleOverlay.w / 2
+                : Math.max(handleOverlay.followXBounds[0], Math.min(handleOverlay.followXBounds[1], cursorPx.x)) - handleOverlay.w / 2)
+            : handleOverlay.x
+          const oy = handleOverlay.followYBounds && cursorPx
+            ? (inDrag
+                ? cursorPx.y - handleOverlay.h / 2
+                : Math.max(handleOverlay.followYBounds[0], Math.min(handleOverlay.followYBounds[1], cursorPx.y)) - handleOverlay.h / 2)
+            : handleOverlay.y
+          return (
+            <rect
+              x={ox} y={oy}
+              width={handleOverlay.w} height={handleOverlay.h}
+              fill={handleOverlay.fill} stroke={handleOverlay.stroke} strokeWidth={handleOverlay.sw}
+              rx={HRADIUS}
+              style={{ cursor: handleOverlay.cursor }}
+              onPointerDown={handleOverlay.onPointerDown}
+              onPointerLeave={() => setHandleOverlay(null)}
+            />
+          )
+        })()}
 
         {/* Scale bar */}
         <g transform={`translate(12, ${svgH - 22})`} pointerEvents="none">

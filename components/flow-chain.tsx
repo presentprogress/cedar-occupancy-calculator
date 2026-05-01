@@ -1,7 +1,10 @@
 "use client"
 
 import type { SpaceArea, SpaceLayout } from "@/lib/types"
-import { rectsOverlap } from "@/lib/types"
+import { isNonRoomType, rectsOverlap } from "@/lib/types"
+
+// Backward-compat: resolve impactsOccupancy with old excludeFromOccupancy field
+const impactsOcc = (s: SpaceArea) => s.impactsOccupancy ?? !(s.excludeFromOccupancy ?? false)
 
 const SETBACK = 3
 const DECK_FACTOR = 15
@@ -82,7 +85,7 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
   for (const group of waterGroups) {
     const ls = group.map(s => spaceLayouts[s.id]).filter(Boolean)
     const { area } = ls.length ? unionInfo(ls) : { area: group.reduce((s,g) => s + g.squareFeet, 0) }
-    const occ = group.some(s => s.excludeFromOccupancy) ? 0 : Math.ceil(area / WATER_FACTOR)
+    const occ = group.some(s => !impactsOcc(s)) ? 0 : Math.ceil(area / WATER_FACTOR)
     rows.push({ kind: "water-group", group, sf: area, occ })
 
     if (ls.length) {
@@ -104,7 +107,10 @@ export function FlowChain({ spaceResults, spaceLayouts, totalOccupancy, farCap, 
   const uncondTotalSF = spaceResults
     .filter(s => !s.isConditioned && !s.outsideEnclosure)
     .reduce((a, s) => a + s.squareFeet, 0)
-  const farOver = farCap !== undefined && condTotalSF > farCap
+  const farTotalSF = spaceResults
+    .filter(s => (s.impactsFAR ?? !isNonRoomType(s.type)) && !s.outsideEnclosure)
+    .reduce((a, s) => a + s.squareFeet, 0)
+  const farOver = farCap !== undefined && farTotalSF > farCap
   const uncondOver = unconditionedLimit !== undefined && uncondTotalSF > unconditionedLimit
 
   return (

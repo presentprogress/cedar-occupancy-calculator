@@ -84,6 +84,11 @@ function isWater(t: string) {
 function isGym(t: string) {
   return t === "Exercise Room (Equipment)" || t === "Exercise Room (Concentrated)"
 }
+// Includes adjacent (touching) rects, not just overlapping — needed for water-surface merging
+function rectsTouch(a: SpaceLayout, b: SpaceLayout): boolean {
+  return a.x <= b.x + b.w && a.x + a.w >= b.x &&
+         a.y <= b.y + b.h && a.y + a.h >= b.y
+}
 function getDims(item: EquipmentItem) {
   const fw = Math.sqrt(item.footprint)
   const border = item.accessSpace > 0
@@ -298,7 +303,7 @@ export function SpacePlanner({
         for (const other of waterSpaces) {
           if (seen.has(other.id)) continue
           const lo = localLayouts[other.id]
-          if (lo && rectsOverlap(lc, lo)) { group.push(other); seen.add(other.id) }
+          if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
         }
       }
       if (group.length > 1) groups.push(group)
@@ -336,7 +341,7 @@ export function SpacePlanner({
           for (const other of typeSpaces) {
             if (seen.has(other.id)) continue
             const lo = localLayouts[other.id]
-            if (lo && rectsOverlap(lc, lo)) { group.push(other); seen.add(other.id) }
+            if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
           }
         }
         if (group.length > 1) groups.push(group)
@@ -543,7 +548,7 @@ export function SpacePlanner({
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  const HLONG = 26, HSHORT = 14, HRADIUS = 3
+  const HLONG = 26, HSHORT = 8, HSHORT_HIT = 14, HRADIUS = 3
 
   return (
     <div className="relative overflow-auto" style={{ background: bgColor }}>
@@ -603,7 +608,7 @@ export function SpacePlanner({
             for (const o of waterSpaces) {
               if (seen.has(o.id)) continue
               const lb = localLayouts[o.id]
-              if (la && lb && rectsOverlap(la, lb)) { group.push(o); seen.add(o.id) }
+              if (la && lb && rectsTouch(la, lb)) { group.push(o); seen.add(o.id) }
             }
             groups.push(group)
           }
@@ -943,13 +948,33 @@ export function SpacePlanner({
                   mask={`url(#${maskBase}-im${ri})`}/>
               ))}
               <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
-                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+                <tspan x={labelX} y={labelY - 18} fontSize={8} fill={colors.text} fontWeight="700" opacity={0.85}>
+                  {group[0].name}
+                </tspan>
+                <tspan x={labelX} dy={13} fontSize={9} fill={colors.text} opacity={0.65}>
                   {unionSF.toLocaleString()} SF
                 </tspan>
                 <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
                 <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
               </text>
             </g>
+          )
+        })}
+
+        {/* ── Conditioned room solid-stroke pass — renders above dashed strokes at colinear edges ── */}
+        {spaces.map(space => {
+          const layout = localLayouts[space.id]
+          if (!layout || !space.isConditioned) return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          const isPoolDeck = space.type === "Pool Deck"
+          if (isMerged || isPoolDeck) return null
+          const colors = palette[space.type] ?? fb
+          const isSel = selected === space.id
+          return (
+            <rect key={`solid-${space.id}`}
+              x={px(layout.x)} y={px(layout.y)} width={px(layout.w)} height={px(layout.h)}
+              fill="none" stroke={colors.stroke} strokeWidth={isSel ? 2.5 : 1.5}
+              rx={3} pointerEvents="none" />
           )
         })}
 
@@ -1029,13 +1054,21 @@ export function SpacePlanner({
                 ]
                 return handles.map(({ hkey, x, y, w, h, cursor, followOpts, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
+                  const isEW = cursor === "ew-resize"
                   return (
-                    <rect key={hkey} x={x} y={y} width={w} height={h}
-                      fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
-                      style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                      onPointerDown={onPD}
-                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
-                    />
+                    <g key={hkey} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                      <rect
+                        x={isEW ? x - Math.floor((HSHORT_HIT - w) / 2) : x}
+                        y={isEW ? y : y - Math.floor((HSHORT_HIT - h) / 2)}
+                        width={isEW ? HSHORT_HIT : w} height={isEW ? h : HSHORT_HIT}
+                        fill="transparent" strokeWidth={0} style={{ cursor }}
+                        onPointerDown={onPD}
+                        onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
+                      />
+                      <rect x={x} y={y} width={w} height={h}
+                        fill={hFillE} stroke={color} strokeWidth={1.5} rx={HRADIUS}
+                        pointerEvents="none" />
+                    </g>
                   )
                 })
               })()}
@@ -1047,13 +1080,21 @@ export function SpacePlanner({
                 ]
                 return handles.map(({ hkey, x, y, w, h, cursor, followOpts, onPD }) => {
                   const isTop = handleOverlay?.key === hkey
+                  const isEW = cursor === "ew-resize"
                   return (
-                    <rect key={hkey} x={x} y={y} width={w} height={h}
-                      fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
-                      style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                      onPointerDown={onPD}
-                      onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, ...followOpts, onPointerDown: onPD })}
-                    />
+                    <g key={hkey} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                      <rect
+                        x={isEW ? x - Math.floor((HSHORT_HIT - w) / 2) : x}
+                        y={isEW ? y : y - Math.floor((HSHORT_HIT - h) / 2)}
+                        width={isEW ? HSHORT_HIT : w} height={isEW ? h : HSHORT_HIT}
+                        fill="transparent" strokeWidth={0} style={{ cursor }}
+                        onPointerDown={onPD}
+                        onPointerEnter={() => setHandleOverlay({ key: hkey, x, y, w, h, fill: hFillE, stroke: color, sw: 1, cursor, ...followOpts, onPointerDown: onPD })}
+                      />
+                      <rect x={x} y={y} width={w} height={h}
+                        fill={hFillE} stroke={color} strokeWidth={1} rx={HRADIUS}
+                        pointerEvents="none" />
+                    </g>
                   )
                 })
               })()}
@@ -1103,13 +1144,19 @@ export function SpacePlanner({
                   ? { followYBounds: [ey + 13, ey + eh - 13] as [number, number] }
                   : { followXBounds: [ex + 13, ex + ew - 13] as [number, number] }
                 return (
-                  <rect key={side}
-                    x={hx} y={hy} width={hw} height={hh}
-                    fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
-                    style={{ cursor: cur, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                    onPointerDown={onPD}
-                    onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, ...followOpts, onPointerDown: onPD })}
-                  />
+                  <g key={side} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                    <rect
+                      x={isLR ? hx - Math.floor((HSHORT_HIT - hw) / 2) : hx}
+                      y={isLR ? hy : hy - Math.floor((HSHORT_HIT - hh) / 2)}
+                      width={isLR ? HSHORT_HIT : hw} height={isLR ? hh : HSHORT_HIT}
+                      fill="transparent" strokeWidth={0} style={{ cursor: cur }}
+                      onPointerDown={onPD}
+                      onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: encStroke, sw: 1.5, cursor: cur, ...followOpts, onPointerDown: onPD })}
+                    />
+                    <rect x={hx} y={hy} width={hw} height={hh}
+                      fill={hFill} stroke={encStroke} strokeWidth={1.5} rx={3}
+                      pointerEvents="none" />
+                  </g>
                 )
               })}
 
@@ -1208,13 +1255,21 @@ export function SpacePlanner({
               ? { followYBounds: [ry + HLONG / 2, ry + rh - HLONG / 2] as [number, number] }
               : { followXBounds: [rx + HLONG / 2, rx + rw - HLONG / 2] as [number, number] }
             return (
-              <rect key={`sel-handle-${side}`}
-                x={hx} y={hy} width={hw} height={hh}
-                fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
-                style={{ cursor, opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : "all" }}
-                onPointerDown={onPD}
-                onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
-              />
+              <g key={`sel-handle-${side}`} style={{ opacity: isTop ? 0 : undefined, pointerEvents: isTop ? "none" : undefined }}>
+                {/* Larger transparent hit area */}
+                <rect
+                  x={isLR ? hx - (HSHORT_HIT - HSHORT) / 2 : hx}
+                  y={isLR ? hy : hy - (HSHORT_HIT - HSHORT) / 2}
+                  width={isLR ? HSHORT_HIT : hw} height={isLR ? hh : HSHORT_HIT}
+                  fill="transparent" strokeWidth={0} style={{ cursor }}
+                  onPointerDown={onPD}
+                  onPointerEnter={() => setHandleOverlay({ key: hkey, x: hx, y: hy, w: hw, h: hh, fill: hFill, stroke: colors.stroke, sw: 1.5, cursor, ...followOpts, onPointerDown: onPD })}
+                />
+                {/* Visual pill — HSHORT wide so it doesn't look "big" */}
+                <rect x={hx} y={hy} width={hw} height={hh}
+                  fill={hFill} stroke={colors.stroke} strokeWidth={1.5} rx={HRADIUS}
+                  pointerEvents="none" />
+              </g>
             )
           })
         })()}

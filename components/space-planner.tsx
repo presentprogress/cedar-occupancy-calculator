@@ -384,8 +384,10 @@ export function SpacePlanner({
   }
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
-    const r = svgRef.current!.getBoundingClientRect()
-    setCursorPx({ x: e.clientX - r.left, y: e.clientY - r.top })
+    if (selected || selectedEquip || selectedEnclosure || drag) {
+      const r = svgRef.current!.getBoundingClientRect()
+      setCursorPx({ x: e.clientX - r.left, y: e.clientY - r.top })
+    }
     if (!drag) return
     const ft = toFt(e)
     const dx = snap(ft.x - drag.startFt.x)

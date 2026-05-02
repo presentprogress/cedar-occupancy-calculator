@@ -194,6 +194,7 @@ interface SpacePlannerProps {
   onEquipSizeChange?: (id: string, size: EquipSize) => void
   onDuplicate?: (spaceId: string) => void
   onDeleteSpace?: (spaceId: string) => void
+  onRenameSpace?: (spaceId: string, name: string) => void
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -201,7 +202,7 @@ export function SpacePlanner({
   spaces, equipment, spaceLayouts, enclosure,
   storedEquipPositions, storedEquipSizes, isDark,
   onSpaceResize, onEnclosureChange, onEquipPositionsChange,
-  onEquipResize, onEquipSizeChange, onDuplicate, onDeleteSpace,
+  onEquipResize, onEquipSizeChange, onDuplicate, onDeleteSpace, onRenameSpace,
 }: SpacePlannerProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   // Selection state captured at pointerdown — lets onClick know if element was already selected
@@ -210,6 +211,7 @@ export function SpacePlanner({
   const [selected, setSelected] = useState<string | null>(null)           // room ID
   const [selectedEquip, setSelectedEquip] = useState<string | null>(null) // IKey
   const [selectedEnclosure, setSelectedEnclosure] = useState(false)
+  const [editingNameId, setEditingNameId] = useState<string | null>(null) // in-situ rename
 
   // Local mutable copies of layouts and equip positions
   const [localLayouts, setLocalLayouts] = useState(spaceLayouts)
@@ -305,21 +307,24 @@ export function SpacePlanner({
     return ids
   }, [waterGroups])
 
-  // Adjacent/overlapping same-type area groups (BFS, touch predicate).
-  // Only area types participate — enclosed rooms do not merge.
+  // Adjacent/overlapping compound groups (BFS, touch predicate).
+  // - Area types: merge by type only (water cross-merges via waterGroups separately)
+  // - Enclosed rooms: merge by type + name (compound non-rect rooms; same-name only)
   // Groups with 1 member are excluded (no merging needed, no overlay rendered).
   const areaTypeGroups = useMemo(() => {
-    const byType: Record<string, SpaceArea[]> = {}
+    const byKey: Record<string, SpaceArea[]> = {}
     for (const s of spaces) {
-      if (isWaterType(s.type)) continue     // water handled by waterGroups
-      if (!isAreaType(s.type)) continue     // enclosed rooms do not merge
-      if (!byType[s.type]) byType[s.type] = []
-      byType[s.type].push(s)
+      if (isWaterType(s.type)) continue           // water handled by waterGroups
+      const key = isAreaType(s.type)
+        ? `area\0${s.type}`
+        : `room\0${s.type}\0${s.name}`            // rooms: same type + same name
+      if (!byKey[key]) byKey[key] = []
+      byKey[key].push(s)
     }
     const groups: SpaceArea[][] = []
-    for (const typeSpaces of Object.values(byType)) {
+    for (const bucket of Object.values(byKey)) {
       const seen = new Set<string>()
-      for (const s of typeSpaces) {
+      for (const s of bucket) {
         if (seen.has(s.id)) continue
         const la = localLayouts[s.id]
         if (!la) { seen.add(s.id); continue }
@@ -328,7 +333,7 @@ export function SpacePlanner({
         while (qi < group.length) {
           const lc = localLayouts[group[qi++].id]
           if (!lc) continue
-          for (const other of typeSpaces) {
+          for (const other of bucket) {
             if (seen.has(other.id)) continue
             const lo = localLayouts[other.id]
             if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
@@ -764,16 +769,65 @@ export function SpacePlanner({
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels — suppressed entirely for merged rooms; group overlay shows combined values */}
-              {!isMerged && rw > 28 && rh > 20 && (
+              {/* Labels — suppressed for merged rooms unless the rect is selected
+                  (so users can rename a member of a compound group). */}
+              {(!isMerged || isSel) && rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
-                  <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
-                    textAnchor="middle"
-                    fontSize={Math.min(12, Math.max(8, rw / 9))}
-                    fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
-                    {rw > 80 ? space.name : space.name.split(" ")[0]}
-                  </text>
-                  {rh > 44 && rw > 40 && (
+                  {editingNameId === space.id ? (
+                    <foreignObject
+                      x={rx + 4}
+                      y={ry + 4}
+                      width={Math.max(48, rw - 8)}
+                      height={22}
+                      pointerEvents="all"
+                    >
+                      <input
+                        autoFocus
+                        defaultValue={space.name}
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={e => e.stopPropagation()}
+                        onBlur={e => {
+                          const v = e.currentTarget.value.trim()
+                          if (v && v !== space.name) onRenameSpace?.(space.id, v)
+                          setEditingNameId(null)
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            const v = e.currentTarget.value.trim()
+                            if (v && v !== space.name) onRenameSpace?.(space.id, v)
+                            setEditingNameId(null)
+                          } else if (e.key === "Escape") {
+                            setEditingNameId(null)
+                          }
+                        }}
+                        style={{
+                          width: "100%", height: "100%",
+                          padding: "0 4px",
+                          fontSize: 11, fontWeight: 700,
+                          fontFamily: "system-ui,sans-serif",
+                          color: colors.text,
+                          background: hFill,
+                          border: `1px solid ${colors.stroke}`,
+                          borderRadius: 3,
+                          outline: "none",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </foreignObject>
+                  ) : (
+                    <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
+                      textAnchor="middle"
+                      fontSize={Math.min(12, Math.max(8, rw / 9))}
+                      fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif"
+                      pointerEvents="all"
+                      style={{ cursor: "text", userSelect: "none" }}
+                      onPointerDown={e => e.stopPropagation()}
+                      onDoubleClick={e => { e.stopPropagation(); setEditingNameId(space.id) }}>
+                      {rw > 80 ? space.name : space.name.split(" ")[0]}
+                    </text>
+                  )}
+                  {/* Per-rect SF/OCC suppressed for merged rects (group overlay shows combined values) */}
+                  {!isMerged && rh > 44 && rw > 40 && (
                     <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
                       textAnchor="middle"
                       fontSize={Math.min(10, Math.max(7, rw / 14))}
@@ -781,13 +835,15 @@ export function SpacePlanner({
                       {sf.toLocaleString()} SF
                     </text>
                   )}
-                  <text x={cx2} y={ry + rh - 14}
-                    textAnchor="middle"
-                    fontSize={Math.min(16, Math.max(9, rw / 5.5))}
-                    fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
-                    {occ}
-                  </text>
-                  {rw > 36 && (
+                  {!isMerged && (
+                    <text x={cx2} y={ry + rh - 14}
+                      textAnchor="middle"
+                      fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                      fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                      {occ}
+                    </text>
+                  )}
+                  {!isMerged && rw > 36 && (
                     <text x={cx2} y={ry + rh - 4}
                       textAnchor="middle" fontSize={6.5}
                       fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
@@ -938,7 +994,15 @@ export function SpacePlanner({
           const colors = palette[group[0].type] ?? fb
           const loadFactor = IBC_LOAD_FACTORS[group[0].type] ?? 100
           const maskBase = `tg${gi}`
-          const unionSF = Math.round(rectUnionAreaFt(ls))
+          // Pool Deck overlay: show water-clipped SF (water owns contested zones).
+          // Other area types: plain union.
+          const isDeckGroup = group[0].type === "Pool Deck"
+          const waterLs = isDeckGroup
+            ? spaces.filter(s => isWaterType(s.type)).map(s => localLayouts[s.id]).filter(Boolean)
+            : []
+          const unionSF = isDeckGroup && waterLs.length > 0
+            ? Math.max(0, Math.round(rectUnionAreaFt([...ls, ...waterLs]) - rectUnionAreaFt(waterLs)))
+            : Math.round(rectUnionAreaFt(ls))
           const unionOcc = Math.ceil(unionSF / loadFactor)
           const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
           const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))

@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useMemo } from "react"
+import React, { useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { RotateCcw } from "lucide-react"
 import { IBC_LOAD_FACTORS, isNonRoomType, isWaterType, isGymType, isAreaType, rectsOverlap, rectsTouch } from "@/lib/types"
@@ -351,6 +351,24 @@ export function SpacePlanner({
     return ids
   }, [areaTypeGroups])
 
+  // 4 non-overlapping strips that tile the 3ft ring around every water surface.
+  // Top/bottom include the corners; left/right are side-only (no corner duplication).
+  const autoDeckStripLayouts = useMemo(() => {
+    const strips: {x:number,y:number,w:number,h:number}[] = []
+    for (const s of spaces) {
+      if (!isWaterType(s.type)) continue
+      const l = localLayouts[s.id]
+      if (!l) continue
+      strips.push(
+        { x: l.x-SETBACK, y: l.y-SETBACK, w: l.w+SETBACK*2, h: SETBACK },
+        { x: l.x-SETBACK, y: l.y+l.h,     w: l.w+SETBACK*2, h: SETBACK },
+        { x: l.x-SETBACK, y: l.y,          w: SETBACK,        h: l.h    },
+        { x: l.x+l.w,     y: l.y,          w: SETBACK,        h: l.h    },
+      )
+    }
+    return strips
+  }, [spaces, localLayouts])
+
   // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
     let maxX = 60, maxY = 80
@@ -592,150 +610,44 @@ export function SpacePlanner({
           />
         )}
 
-        {/* ── Pool deck rings — per-pool expanded rings, masked to true 3' contour ── */}
-        {(() => {
-          const waterSpaces = spaces.filter(s => isWaterType(s.type))
+        {/* ── Auto-deck strips — 3ft ring tiled as 4 plain rects per water surface ── */}
+        {autoDeckStripLayouts.length > 0 && (() => {
           const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
-          // BFS grouping — same as waterGroups to correctly handle chains of 3+ water surfaces
-          const seen = new Set<string>()
-          const groups: SpaceArea[][] = []
-          for (const s of waterSpaces) {
-            if (seen.has(s.id)) continue
-            const la = localLayouts[s.id]
-            if (!la) { seen.add(s.id); continue }
-            const group = [s]; seen.add(s.id)
-            let qi = 0
-            while (qi < group.length) {
-              const lc = localLayouts[group[qi++].id]
-              if (!lc) continue
-              for (const o of waterSpaces) {
-                if (seen.has(o.id)) continue
-                const lo = localLayouts[o.id]
-                if (lo && rectsTouch(lc, lo)) { group.push(o); seen.add(o.id) }
-              }
-            }
-            groups.push(group)
-          }
-          const deckFill = isDark ? "#271800" : "#fef3c7"
-          const deckOpacity = isDark ? 0.92 : 0.9
-          const deckStroke = isDark ? "#d97706" : "#d97706"
-
-          const manualDeckLayouts = spaces
-            .filter(s => s.type === "Pool Deck")
-            .map(s => localLayouts[s.id])
-            .filter(Boolean) as {x:number,y:number,w:number,h:number}[]
-
-          return groups.map((group, gi) => {
-            const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
-            if (!ls.length) return null
-            // Bounding box of entire group (for label placement + mask rect)
-            const bx0 = Math.min(...ls.map(l => l.x))
-            const by0 = Math.min(...ls.map(l => l.y))
-            const bx1 = Math.max(...ls.map(l => l.x + l.w))
-            const by1 = Math.max(...ls.map(l => l.y + l.h))
-            // Deck SF/occ — union of expanded rects minus water union
-            const unionArea = (rects: {x:number,y:number,w:number,h:number}[]) => {
-              let a = rects.reduce((s,r) => s + r.w*r.h, 0)
-              for (let i=0;i<rects.length;i++) for (let j=i+1;j<rects.length;j++) {
-                const [p,q]=[rects[i],rects[j]]
-                a -= Math.max(0,Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x)) *
-                     Math.max(0,Math.min(p.y+p.h,q.y+q.h)-Math.max(p.y,q.y))
-              }
-              return a
-            }
-            const waterArea = unionArea(ls)
-            const expanded = ls.map(l => ({x:l.x-SETBACK,y:l.y-SETBACK,w:l.w+SETBACK*2,h:l.h+SETBACK*2}))
-            const deckSF = Math.max(0, Math.round(unionArea(expanded) - waterArea))
-            const deckOcc = Math.ceil(deckSF / 15)
-            // Canvas coords of the mask coverage area
-            const mx = px(bx0 - SETBACK - 0.5), my = px(by0 - SETBACK - 0.5)
-            const mw = px(bx1 - bx0 + (SETBACK + 0.5) * 2)
-            const mh = px(by1 - by0 + (SETBACK + 0.5) * 2)
-            // Ring bounding box in canvas px (used for label placement)
-            const rlx = px(bx0 - SETBACK), rly = px(by0 - SETBACK)
-            const rlw = px(bx1 - bx0 + SETBACK * 2), rlh = px(by1 - by0 + SETBACK * 2)
-            const labelX = rlx + rlw / 2
-            const maskId = `dm-${gi}`
-
-            return (
-              <g key={`deck-grp-${gi}`} pointerEvents="none" opacity={hasManualPoolDeck ? 0.6 : 1}>
-                <defs>
-                  <mask id={maskId}>
-                    {ls.map((l, li) => (
-                      <rect key={`exp-${li}`}
-                        x={px(l.x - SETBACK)} y={px(l.y - SETBACK)}
-                        width={px(l.w + SETBACK * 2)} height={px(l.h + SETBACK * 2)}
-                        fill="white" />
-                    ))}
-                    {ls.map((l, li) => (
-                      <rect key={`cut-${li}`}
-                        x={px(l.x)} y={px(l.y)}
-                        width={px(l.w)} height={px(l.h)}
-                        fill="black" />
-                    ))}
-                    {hasManualPoolDeck && manualDeckLayouts.map((dl, di) => (
-                      <rect key={`mdc-${di}`}
-                        x={px(dl.x)} y={px(dl.y)}
-                        width={px(dl.w)} height={px(dl.h)}
-                        fill="black" />
-                    ))}
-                  </mask>
-                  {/* Outer stroke masks: white everywhere, other expanded rects + manual deck blacked out */}
-                  {expanded.map((_, ei) => (
-                    <mask key={`sm-${ei}`} id={`${maskId}-s${ei}`}>
-                      <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
-                      {expanded.filter((_,j) => j !== ei).map((e, j) => (
-                        <rect key={j} fill="black"
-                          x={px(e.x)-2} y={px(e.y)-2}
-                          width={px(e.w)+4} height={px(e.h)+4}/>
-                      ))}
-                      {hasManualPoolDeck && manualDeckLayouts.map((dl, di) => (
-                        <rect key={`msdc-${di}`} fill="black"
-                          x={px(dl.x)-2} y={px(dl.y)-2}
-                          width={px(dl.w)+4} height={px(dl.h)+4}/>
-                      ))}
-                    </mask>
-                  ))}
-                </defs>
-
-                {/* Amber fill masked to true 3' contour */}
-                <rect x={mx} y={my} width={mw} height={mh}
-                  fill={deckFill} fillOpacity={deckOpacity}
-                  mask={`url(#${maskId})`} />
-                {/* Solid amber stroke — outer boundary of deck, shared edges masked */}
-                {expanded.map((e, ei) => (
-                  <rect key={`ds-${ei}`}
-                    x={px(e.x)} y={px(e.y)} width={px(e.w)} height={px(e.h)}
-                    fill="none" stroke={deckStroke} strokeWidth={1.5} rx={3}
-                    mask={`url(#${maskId}-s${ei})`}/>
-                ))}
-
-                <g pointerEvents="none" fontFamily="'Geist Mono',monospace"
-                  fill={isDark ? "#fbbf24" : "#92400e"}>
-                  <text x={labelX} y={rly + 12}
-                    textAnchor="middle" fontSize={7.5}>
-                    {hasManualPoolDeck ? "Auto Deck (ref)" : "Pool Deck (Auto)"}
-                  </text>
-                  <text x={labelX} y={rly + 22}
-                    textAnchor="middle" fontSize={7.5} opacity={0.7}>
-                    {deckSF.toLocaleString()} SF
-                  </text>
-                  {!hasManualPoolDeck && (
-                    <>
-                      <text x={labelX} y={rly + rlh - 14}
-                        textAnchor="middle" fontSize={16} fontWeight="800">
-                        {deckOcc}
-                      </text>
-                      <text x={labelX} y={rly + rlh - 4}
-                        textAnchor="middle" fontSize={6.5} opacity={0.5}>
-                        OCC
-                      </text>
-                    </>
-                  )}
-                </g>
+          const colors = palette["Pool Deck"] ?? fb
+          // Label only when no manual deck — otherwise areaTypeGroups overlay handles it
+          let labelEl: React.ReactNode = null
+          if (!hasManualPoolDeck) {
+            const waterLs = spaces.filter(s => isWaterType(s.type))
+              .map(s => localLayouts[s.id]).filter(Boolean)
+            const deckSF = waterLs.length > 0
+              ? Math.max(0, Math.round(rectUnionAreaFt([...autoDeckStripLayouts, ...waterLs]) - rectUnionAreaFt(waterLs)))
+              : Math.round(rectUnionAreaFt(autoDeckStripLayouts))
+            const deckOcc = Math.ceil(deckSF / IBC_LOAD_FACTORS["Pool Deck"])
+            const bx0 = Math.min(...autoDeckStripLayouts.map(l => l.x))
+            const by0 = Math.min(...autoDeckStripLayouts.map(l => l.y))
+            const bx1 = Math.max(...autoDeckStripLayouts.map(l => l.x + l.w))
+            const by1 = Math.max(...autoDeckStripLayouts.map(l => l.y + l.h))
+            const lx = px((bx0+bx1)/2), ly = px((by0+by1)/2)
+            labelEl = (
+              <g textAnchor="middle" fontFamily="'Geist Mono',monospace" fill={colors.text}>
+                <text x={lx} y={ly - 12} fontSize={9} fontWeight="700">Pool Deck (Auto)</text>
+                <text x={lx} y={ly + 2}  fontSize={9} opacity={0.65}>{deckSF.toLocaleString()} SF</text>
+                <text x={lx} y={ly + 18} fontSize={14} fontWeight="800">{deckOcc}</text>
+                <text x={lx} y={ly + 28} fontSize={6.5} opacity={0.4}>OCC</text>
               </g>
             )
-          })
+          }
+          return (
+            <g pointerEvents="none">
+              {autoDeckStripLayouts.map((l, i) => (
+                <rect key={`ads-${i}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill={colors.fill} fillOpacity={isDark ? 0.92 : 0.9}
+                  stroke={colors.stroke} strokeWidth={1.5} rx={2}/>
+              ))}
+              {labelEl}
+            </g>
+          )
         })()}
 
         {/* ── ROOMS — larger areas rendered first (lower z) ── */}
@@ -1015,8 +927,10 @@ export function SpacePlanner({
           const waterLs = isDeckGroup
             ? spaces.filter(s => isWaterType(s.type)).map(s => localLayouts[s.id]).filter(Boolean)
             : []
-          const unionSF = isDeckGroup && waterLs.length > 0
-            ? Math.max(0, Math.round(rectUnionAreaFt([...ls, ...waterLs]) - rectUnionAreaFt(waterLs)))
+          const unionSF = isDeckGroup
+            ? Math.max(0, Math.round(
+                rectUnionAreaFt([...ls, ...autoDeckStripLayouts, ...waterLs]) - rectUnionAreaFt(waterLs)
+              ))
             : Math.round(rectUnionAreaFt(ls))
           const unionOcc = Math.ceil(unionSF / loadFactor)
           const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))

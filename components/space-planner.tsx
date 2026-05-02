@@ -959,19 +959,24 @@ export function SpacePlanner({
                   strokeDasharray="6 5" opacity={0.28} rx={3}
                   mask={`url(#${maskBase}-im${ri})`}/>
               ))}
-              {/* Group label at union bounding-box center — SF · OCC */}
+              {/* Group label at union bounding-box center — name · SF · OCC */}
               <g pointerEvents="none" textAnchor="middle">
-                <text x={labelX} y={labelY - 8}
+                <text x={labelX} y={labelY - 16}
+                  fontSize={12} fontWeight="700"
+                  fill={colors.text} fontFamily="system-ui,sans-serif">
+                  {group[0].name}
+                </text>
+                <text x={labelX} y={labelY - 2}
                   fontSize={9} fill={colors.text} opacity={0.65}
                   fontFamily="'Geist Mono',monospace">
                   {unionSF.toLocaleString()} SF
                 </text>
-                <text x={labelX} y={labelY + 8}
+                <text x={labelX} y={labelY + 14}
                   fontSize={14} fontWeight="800" fill={occColor}
                   fontFamily="'Geist Mono',monospace">
                   {unionOcc}
                 </text>
-                <text x={labelX} y={labelY + 18}
+                <text x={labelX} y={labelY + 24}
                   fontSize={6.5} fill={colors.text} opacity={0.4}
                   fontFamily="'Geist Mono',monospace">
                   OCC
@@ -1002,8 +1007,6 @@ export function SpacePlanner({
           const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
           const labelX = px((bx0 + bx1) / 2)
           const labelY = px((by0 + by1) / 2)
-          // Compound rooms show the shared name; area types show type-level label only.
-          const isRoomGroup = !isAreaType(group[0].type)
           return (
             <g key={`tg-${gi}`} pointerEvents="none">
               <defs>
@@ -1047,24 +1050,22 @@ export function SpacePlanner({
               ))}
               {/* Group overlay label at union bounding-box center — name · SF · OCC */}
               <g pointerEvents="none" textAnchor="middle">
-                {isRoomGroup && (
-                  <text x={labelX} y={labelY - 16}
-                    fontSize={12} fontWeight="700"
-                    fill={colors.text} fontFamily="system-ui,sans-serif">
-                    {group[0].name}
-                  </text>
-                )}
-                <text x={labelX} y={isRoomGroup ? labelY - 2 : labelY - 8}
+                <text x={labelX} y={labelY - 16}
+                  fontSize={12} fontWeight="700"
+                  fill={colors.text} fontFamily="system-ui,sans-serif">
+                  {group[0].name}
+                </text>
+                <text x={labelX} y={labelY - 2}
                   fontSize={9} fill={colors.text} opacity={0.65}
                   fontFamily="'Geist Mono',monospace">
                   {unionSF.toLocaleString()} SF
                 </text>
-                <text x={labelX} y={isRoomGroup ? labelY + 14 : labelY + 8}
+                <text x={labelX} y={labelY + 14}
                   fontSize={14} fontWeight="800" fill={occColor}
                   fontFamily="'Geist Mono',monospace">
                   {unionOcc}
                 </text>
-                <text x={labelX} y={isRoomGroup ? labelY + 24 : labelY + 18}
+                <text x={labelX} y={labelY + 24}
                   fontSize={6.5} fill={colors.text} opacity={0.4}
                   fontFamily="'Geist Mono',monospace">
                   OCC

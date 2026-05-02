@@ -769,9 +769,10 @@ export function SpacePlanner({
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels — suppressed for merged rooms unless the rect is selected
-                  (so users can rename a member of a compound group). */}
-              {(!isMerged || isSel) && rw > 28 && rh > 20 && (
+              {/* Labels — area-type merged rects suppress all labels (group overlay shows combined).
+                  Compound rooms keep the name visible when deselected so users can orient
+                  themselves; SF/OCC are still suppressed in favour of the group overlay. */}
+              {(!isMerged || isSel || !isAreaType(space.type)) && rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
                   {editingNameId === space.id ? (
                     <foreignObject

@@ -266,23 +266,36 @@ export default function OccupancyCalculator() {
           }
         }
 
+        // Singleton non-deck groups already have correct per-space occupancy in
+        // spaceResults (computed from declared squareFeet, which users can edit
+        // directly). Don't overwrite — only multi-member groups need union-area
+        // math, and only Pool Deck singletons need water clipping.
+        const isMultiMember = group.length > 1
+        const isPoolDeck = s.type === "Pool Deck"
+        if (!isMultiMember && !isPoolDeck) continue
+
         const groupLayouts = group
           .map(g => spaceLayouts[g.id])
           .filter((l): l is SpaceLayout => Boolean(l))
-        const groupSF = groupLayouts.length === group.length
-          ? Math.round(rectUnionArea(groupLayouts))
-          : group.reduce((a, g) => a + g.squareFeet, 0)
 
         let groupOcc: number
-        if (s.type === "Pool Deck") {
-          // Water surface is authoritative — deck SF = (deck ∪ water area) − water area
-          const effectiveSF = waterLayouts.length > 0
-            ? Math.max(0, Math.round(
-                rectUnionArea([...groupLayouts, ...waterLayouts]) - rectUnionArea(waterLayouts)
-              ))
-            : groupSF
-          groupOcc = Math.ceil(effectiveSF / IBC_LOAD_FACTORS["Pool Deck"])
+        if (isPoolDeck) {
+          // Water surface is authoritative — deck SF = (deck ∪ water) − water.
+          // Falls back to declared squareFeet sum when layouts are missing or no water exists.
+          if (groupLayouts.length === group.length && waterLayouts.length > 0) {
+            const effectiveSF = Math.max(0, Math.round(
+              rectUnionArea([...groupLayouts, ...waterLayouts]) - rectUnionArea(waterLayouts)
+            ))
+            groupOcc = Math.ceil(effectiveSF / IBC_LOAD_FACTORS["Pool Deck"])
+          } else {
+            const sumSF = group.reduce((a, g) => a + g.squareFeet, 0)
+            groupOcc = Math.ceil(sumSF / IBC_LOAD_FACTORS["Pool Deck"])
+          }
         } else {
+          // Multi-member non-deck area: union area when all layouts present, else sum
+          const groupSF = groupLayouts.length === group.length
+            ? Math.round(rectUnionArea(groupLayouts))
+            : group.reduce((a, g) => a + g.squareFeet, 0)
           groupOcc = Math.ceil(groupSF / IBC_LOAD_FACTORS[s.type])
         }
 

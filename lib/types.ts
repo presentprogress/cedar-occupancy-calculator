@@ -96,10 +96,19 @@ export function rectsOverlap(a: SpaceLayout, b: SpaceLayout): boolean {
          a.y < b.y + b.h && a.y + a.h > b.y
 }
 
-/** Touch or overlap — includes shared edges (zero-width intersection). */
+/**
+ * Edge-share or interior overlap. Corner-only contact (single point) does NOT count —
+ * diagonally-touching rectangles aren't "merged" from a user-intent standpoint, and
+ * including them silently undercounts occupancy after ceil-rounding by group.
+ */
 export function rectsTouch(a: SpaceLayout, b: SpaceLayout): boolean {
-  return a.x <= b.x + b.w && a.x + a.w >= b.x &&
-         a.y <= b.y + b.h && a.y + a.h >= b.y
+  // Bounding boxes must overlap/touch in both axes
+  if (a.x > b.x + b.w || a.x + a.w < b.x) return false
+  if (a.y > b.y + b.h || a.y + a.h < b.y) return false
+  // At least one axis must have strict overlap (rejects corner-only contact)
+  const xStrict = a.x < b.x + b.w && a.x + a.w > b.x
+  const yStrict = a.y < b.y + b.h && a.y + a.h > b.y
+  return xStrict || yStrict
 }
 
 export const WC_THRESHOLDS: Array<{ max: number; total: number; accessible: number }> = [

@@ -159,6 +159,7 @@ export function normalizeImportedJson(raw: unknown): NormalizeResult {
       unconditionedLimit: d.unconditionedLimit ?? d.unconditioned_limit ?? 500,
       maxOccupants: d.maxOccupants ?? d.max_occupants,
       farCap: d.farCap ?? d.far_cap,
+      spaceLayouts: {},
     },
   }
 }

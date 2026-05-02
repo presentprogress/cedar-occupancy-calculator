@@ -3,7 +3,7 @@
 import { useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { RotateCcw } from "lucide-react"
-import { IBC_LOAD_FACTORS, isNonRoomType, rectsOverlap } from "@/lib/types"
+import { IBC_LOAD_FACTORS, isNonRoomType, isWaterType, isGymType, isAreaType, rectsOverlap, rectsTouch } from "@/lib/types"
 import type { EquipmentItem, SpaceArea, SpaceLayout } from "@/lib/types"
 
 // ─── Scale & constants ────────────────────────────────────────────────────────
@@ -76,19 +76,7 @@ const EQUIP_PALETTE = [
 const px = (ft: number) => ft * PX
 const snap = (v: number) => Math.round(v / SNAP) * SNAP
 
-function isWater(t: string) {
-  return t === "Swimming Pool (Water Surface)" ||
-         t === "Spa/Hot Tub (Water Surface)" ||
-         t === "Cold Plunge (Water Surface)"
-}
-function isGym(t: string) {
-  return t === "Exercise Room (Equipment)" || t === "Exercise Room (Concentrated)"
-}
-// Includes adjacent (touching) rects, not just overlapping — needed for water-surface merging
-function rectsTouch(a: SpaceLayout, b: SpaceLayout): boolean {
-  return a.x <= b.x + b.w && a.x + a.w >= b.x &&
-         a.y <= b.y + b.h && a.y + a.h >= b.y
-}
+// isWaterType, isGymType, isAreaType, rectsTouch imported from @/lib/types
 function getDims(item: EquipmentItem) {
   const fw = Math.sqrt(item.footprint)
   const border = item.accessSpace > 0
@@ -127,7 +115,7 @@ function buildEquipDefaults(
   spaces: SpaceArea[],
   layouts: Record<string, SpaceLayout>
 ): Positions {
-  const gym = spaces.find(s => isGym(s.type))
+  const gym = spaces.find(s => isGymType(s.type))
   const gl = gym ? layouts[gym.id] : null
   let cx = gl ? gl.x + 2 : 4
   let cy = gl ? gl.y + 2 : 100
@@ -288,7 +276,7 @@ export function SpacePlanner({
 
   // Overlapping water groups (connected components via BFS)
   const waterGroups = useMemo(() => {
-    const waterSpaces = spaces.filter(s => isWater(s.type))
+    const waterSpaces = spaces.filter(s => isWaterType(s.type))
     const seen = new Set<string>()
     const groups: SpaceArea[][] = []
     for (const s of waterSpaces) {
@@ -317,14 +305,16 @@ export function SpacePlanner({
     return ids
   }, [waterGroups])
 
-  // Overlapping same-type groups for non-water rooms (connected components per type)
-  const nonWaterTypeGroups = useMemo(() => {
+  // Adjacent/overlapping same-type area groups (BFS, touch predicate).
+  // Only area types participate — enclosed rooms do not merge.
+  // Groups with 1 member are excluded (no merging needed, no overlay rendered).
+  const areaTypeGroups = useMemo(() => {
     const byType: Record<string, SpaceArea[]> = {}
     for (const s of spaces) {
-      if (isWater(s.type)) continue
-      const k = s.type + "\0" + s.name
-      if (!byType[k]) byType[k] = []
-      byType[k].push(s)
+      if (isWaterType(s.type)) continue     // water handled by waterGroups
+      if (!isAreaType(s.type)) continue     // enclosed rooms do not merge
+      if (!byType[s.type]) byType[s.type] = []
+      byType[s.type].push(s)
     }
     const groups: SpaceArea[][] = []
     for (const typeSpaces of Object.values(byType)) {
@@ -350,11 +340,11 @@ export function SpacePlanner({
     return groups
   }, [spaces, localLayouts])
 
-  const mergedNonWaterIds = useMemo(() => {
+  const mergedAreaIds = useMemo(() => {
     const ids = new Set<string>()
-    for (const g of nonWaterTypeGroups) for (const s of g) ids.add(s.id)
+    for (const g of areaTypeGroups) for (const s of g) ids.add(s.id)
     return ids
-  }, [nonWaterTypeGroups])
+  }, [areaTypeGroups])
 
   // Canvas size — always large enough to show the enclosure boundary
   const { svgW, svgH } = useMemo(() => {
@@ -599,18 +589,25 @@ export function SpacePlanner({
 
         {/* ── Pool deck rings — per-pool expanded rings, masked to true 3' contour ── */}
         {(() => {
-          const waterSpaces = spaces.filter(s => isWater(s.type))
+          const waterSpaces = spaces.filter(s => isWaterType(s.type))
           const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
+          // BFS grouping — same as waterGroups to correctly handle chains of 3+ water surfaces
           const seen = new Set<string>()
           const groups: SpaceArea[][] = []
           for (const s of waterSpaces) {
             if (seen.has(s.id)) continue
-            const group = [s]; seen.add(s.id)
             const la = localLayouts[s.id]
-            for (const o of waterSpaces) {
-              if (seen.has(o.id)) continue
-              const lb = localLayouts[o.id]
-              if (la && lb && rectsTouch(la, lb)) { group.push(o); seen.add(o.id) }
+            if (!la) { seen.add(s.id); continue }
+            const group = [s]; seen.add(s.id)
+            let qi = 0
+            while (qi < group.length) {
+              const lc = localLayouts[group[qi++].id]
+              if (!lc) continue
+              for (const o of waterSpaces) {
+                if (seen.has(o.id)) continue
+                const lo = localLayouts[o.id]
+                if (lo && rectsTouch(lc, lo)) { group.push(o); seen.add(o.id) }
+              }
             }
             groups.push(group)
           }
@@ -735,7 +732,7 @@ export function SpacePlanner({
           const isSel = selected === space.id
           const sf = Math.round(layout.w * layout.h)
           const occ = Math.ceil(sf / IBC_LOAD_FACTORS[space.type])
-          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          const isMerged = mergedWaterIds.has(space.id) || mergedAreaIds.has(space.id)
           const isPoolDeck = space.type === "Pool Deck"
 
           const hFill = isDark ? "#1e293b" : "#fff"
@@ -846,7 +843,7 @@ export function SpacePlanner({
         })}
 
         {/*
-          ── CANONICAL GROUP-OVERLAY PATTERN (used by BOTH waterGroups AND nonWaterTypeGroups) ──
+          ── CANONICAL GROUP-OVERLAY PATTERN (used by BOTH waterGroups AND areaTypeGroups) ──
           Two SVG masks per rect (ri) achieve clean merged-room rendering:
 
           Outer mask  (id=`${maskBase}-m${ri}`)
@@ -935,7 +932,7 @@ export function SpacePlanner({
         })}
 
         {/* ── Non-water same-type group combined outlines + combined label ── (⚠️ keep in sync with waterGroups above — canonical pattern) */}
-        {nonWaterTypeGroups.map((group, gi) => {
+        {areaTypeGroups.map((group, gi) => {
           const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
           if (ls.length < 2) return null
           const colors = palette[group[0].type] ?? fb
@@ -1009,8 +1006,8 @@ export function SpacePlanner({
         {spaces.map(space => {
           const layout = localLayouts[space.id]
           if (!layout || space.isConditioned) return null
-          if (isWater(space.type) || space.type === "Pool Deck") return null
-          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          if (isWaterType(space.type) || space.type === "Pool Deck") return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedAreaIds.has(space.id)
           if (isMerged) return null
           const colors = palette[space.type] ?? fb
           const isSel = selected === space.id
@@ -1033,7 +1030,7 @@ export function SpacePlanner({
 
         {/* ── Non-merged water surface stroke pass — solid outer only, no inner ring ── */}
         {spaces.map(space => {
-          if (!isWater(space.type)) return null
+          if (!isWaterType(space.type)) return null
           const layout = localLayouts[space.id]
           if (!layout || mergedWaterIds.has(space.id)) return null
           const colors = palette[space.type] ?? fb
@@ -1053,8 +1050,8 @@ export function SpacePlanner({
           if (!layout) return null
           const isPoolDeck = space.type === "Pool Deck"
           if (!space.isConditioned && !isPoolDeck) return null
-          if (isWater(space.type)) return null
-          const isMerged = mergedWaterIds.has(space.id) || mergedNonWaterIds.has(space.id)
+          if (isWaterType(space.type)) return null
+          const isMerged = mergedWaterIds.has(space.id) || mergedAreaIds.has(space.id)
           if (isMerged) return null
           const colors = palette[space.type] ?? fb
           const isSel = selected === space.id

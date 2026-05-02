@@ -620,6 +620,11 @@ export function SpacePlanner({
           const deckOpacity = isDark ? 0.92 : 0.9
           const deckStroke = isDark ? "#d97706" : "#d97706"
 
+          const manualDeckLayouts = spaces
+            .filter(s => s.type === "Pool Deck")
+            .map(s => localLayouts[s.id])
+            .filter(Boolean) as {x:number,y:number,w:number,h:number}[]
+
           return groups.map((group, gi) => {
             const ls = group.map(s => localLayouts[s.id]).filter(Boolean)
             if (!ls.length) return null
@@ -653,7 +658,7 @@ export function SpacePlanner({
             const maskId = `dm-${gi}`
 
             return (
-              <g key={`deck-grp-${gi}`} pointerEvents="none" opacity={hasManualPoolDeck ? 0.35 : 1}>
+              <g key={`deck-grp-${gi}`} pointerEvents="none" opacity={hasManualPoolDeck ? 0.6 : 1}>
                 <defs>
                   <mask id={maskId}>
                     {ls.map((l, li) => (
@@ -668,8 +673,14 @@ export function SpacePlanner({
                         width={px(l.w)} height={px(l.h)}
                         fill="black" />
                     ))}
+                    {hasManualPoolDeck && manualDeckLayouts.map((dl, di) => (
+                      <rect key={`mdc-${di}`}
+                        x={px(dl.x)} y={px(dl.y)}
+                        width={px(dl.w)} height={px(dl.h)}
+                        fill="black" />
+                    ))}
                   </mask>
-                  {/* Outer stroke masks: white everywhere, other expanded rects blacked out (+2px) */}
+                  {/* Outer stroke masks: white everywhere, other expanded rects + manual deck blacked out */}
                   {expanded.map((_, ei) => (
                     <mask key={`sm-${ei}`} id={`${maskId}-s${ei}`}>
                       <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
@@ -677,6 +688,11 @@ export function SpacePlanner({
                         <rect key={j} fill="black"
                           x={px(e.x)-2} y={px(e.y)-2}
                           width={px(e.w)+4} height={px(e.h)+4}/>
+                      ))}
+                      {hasManualPoolDeck && manualDeckLayouts.map((dl, di) => (
+                        <rect key={`msdc-${di}`} fill="black"
+                          x={px(dl.x)-2} y={px(dl.y)-2}
+                          width={px(dl.w)+4} height={px(dl.h)+4}/>
                       ))}
                     </mask>
                   ))}

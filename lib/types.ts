@@ -25,25 +25,44 @@ export interface SpaceArea {
   type: SpaceType
   squareFeet: number
   isConditioned: boolean
-  isOutdoor?: boolean         // default false (indoor); true forces isConditioned off
-  impactsFAR?: boolean        // default true for rooms, false for non-rooms (water/deck)
-  impactsOccupancy?: boolean  // default true; positive replacement for excludeFromOccupancy
-  excludeFromOccupancy?: boolean // deprecated — kept for backward-compat with saved state
+  impactsFAR?: boolean        // default: !isNonRoomType(type)
+  impactsOccupancy?: boolean  // default: true
+  excludeFromOccupancy?: boolean // deprecated — backward-compat only
 }
 
-/** Water surfaces and pool deck — cannot be conditioned, do not impact FAR by default. */
+/** Water surfaces, pool deck — unenclosed; cannot be conditioned, do not impact FAR by default. */
 export function isNonRoomType(type: SpaceType): boolean {
+  return isWaterType(type) || type === "Pool Deck"
+}
+
+/** All three water surface subtypes share load factor 50 and merge as one group. */
+export function isWaterType(type: SpaceType): boolean {
   return type === "Swimming Pool (Water Surface)" ||
          type === "Spa/Hot Tub (Water Surface)"   ||
-         type === "Cold Plunge (Water Surface)"   ||
-         type === "Pool Deck"
+         type === "Cold Plunge (Water Surface)"
+}
+
+export function isGymType(type: SpaceType): boolean {
+  return type === "Exercise Room (Equipment)" || type === "Exercise Room (Concentrated)"
+}
+
+/**
+ * Unenclosed area types that merge into compound shapes when adjacent or overlapping.
+ * Same-type areas touching produce one union-area occupancy number, not a per-rect sum.
+ */
+export function isAreaType(type: SpaceType): boolean {
+  return isWaterType(type) ||
+         type === "Pool Deck" ||
+         isGymType(type) ||
+         type === "Lounge/Seating Area"
 }
 
 export interface EquipmentItem {
   id: string
   name: string
   footprint: number
-  accessInches: number  // uniform clearance offset on each side in inches (default 36 = 3ft)
+  accessSpace: number      // clearance area in SF added around footprint
+  sharedClearance?: number // overlapping clearance between adjacent instances (canvas-derived)
   quantity: number
 }
 
@@ -71,9 +90,25 @@ export interface AppState {
   }
 }
 
+/** Strict interior overlap — at least 1 unit of shared area. */
 export function rectsOverlap(a: SpaceLayout, b: SpaceLayout): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x &&
          a.y < b.y + b.h && a.y + a.h > b.y
+}
+
+/**
+ * Edge-share or interior overlap. Corner-only contact (single point) does NOT count —
+ * diagonally-touching rectangles aren't "merged" from a user-intent standpoint, and
+ * including them silently undercounts occupancy after ceil-rounding by group.
+ */
+export function rectsTouch(a: SpaceLayout, b: SpaceLayout): boolean {
+  // Bounding boxes must overlap/touch in both axes
+  if (a.x > b.x + b.w || a.x + a.w < b.x) return false
+  if (a.y > b.y + b.h || a.y + a.h < b.y) return false
+  // At least one axis must have strict overlap (rejects corner-only contact)
+  const xStrict = a.x < b.x + b.w && a.x + a.w > b.x
+  const yStrict = a.y < b.y + b.h && a.y + a.h > b.y
+  return xStrict || yStrict
 }
 
 export const WC_THRESHOLDS: Array<{ max: number; total: number; accessible: number }> = [

@@ -912,7 +912,7 @@ export function SpacePlanner({
             • Each OTHER rect is whited out (no buffer)
             • Effect: dashed strokes only appear INSIDE the shared overlap zone
 
-          Label: SF then occ, centred on the true overlap zone (falls back to bounding-box centre)
+          Label: SF then occ, centred in the largest member rect (always inside the compound)
 
           ⚠️  If you change one section you MUST change the other to match.
           ─────────────────────────────────────────────────────────────────────────────────────────
@@ -926,14 +926,11 @@ export function SpacePlanner({
           const maskBase = `wg${gi}`
           const unionSF = Math.round(rectUnionAreaFt(ls))
           const unionOcc = Math.ceil(unionSF / 50)
-          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
-          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
-          // Centre label on the intersection (overlap) of all rects; fall back to bounding box
-          const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
-          const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
-          const hasOverlap = ox0 < ox1 && oy0 < oy1
-          const labelX = px(hasOverlap ? (ox0+ox1)/2 : (bx0+bx1)/2)
-          const labelY = px(hasOverlap ? (oy0+oy1)/2 : (by0+by1)/2)
+          // Label lives in the largest member rect — always inside the compound,
+          // handles L/T/U shapes better than intersection-zone or bounding-box center.
+          const lr = ls.reduce((a, b) => a.w * a.h >= b.w * b.h ? a : b)
+          const labelX = px(lr.x + lr.w / 2)
+          const labelY = px(lr.y + lr.h / 2)
           return (
             <g key={`wg-${gi}`} pointerEvents="none">
               <defs>
@@ -1004,14 +1001,12 @@ export function SpacePlanner({
             ? Math.max(0, Math.round(rectUnionAreaFt([...ls, ...waterLs]) - rectUnionAreaFt(waterLs)))
             : Math.round(rectUnionAreaFt(ls))
           const unionOcc = Math.ceil(unionSF / loadFactor)
-          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
-          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
-          // Centre label on the intersection (overlap) of all rects; fall back to bounding box
-          const ox0 = Math.max(...ls.map(l => l.x)), oy0 = Math.max(...ls.map(l => l.y))
-          const ox1 = Math.min(...ls.map(l => l.x+l.w)), oy1 = Math.min(...ls.map(l => l.y+l.h))
-          const hasOverlap = ox0 < ox1 && oy0 < oy1
-          const labelX = px(hasOverlap ? (ox0+ox1)/2 : (bx0+bx1)/2)
-          const labelY = px(hasOverlap ? (oy0+oy1)/2 : (by0+by1)/2)
+          // Label lives in the largest member rect — always inside the compound.
+          const lr = ls.reduce((a, b) => a.w * a.h >= b.w * b.h ? a : b)
+          const labelX = px(lr.x + lr.w / 2)
+          const labelY = px(lr.y + lr.h / 2)
+          // For compound rooms (non-area types): show the shared name above the SF/occ.
+          const isRoomGroup = !isAreaType(group[0].type)
           return (
             <g key={`tg-${gi}`} pointerEvents="none">
               <defs>
@@ -1053,8 +1048,15 @@ export function SpacePlanner({
                   strokeDasharray="6 5" opacity={0.28} rx={3}
                   mask={`url(#${maskBase}-im${ri})`}/>
               ))}
-              {/* Combined SF + occ label centred on the overlap zone */}
+              {/* Compound label: name (rooms only) · SF · occ */}
               <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
+                {isRoomGroup && (
+                  <tspan x={labelX} y={labelY - 18}
+                    fontSize={Math.min(12, Math.max(8, px(lr.w) / 9))}
+                    fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
+                    {group[0].name}
+                  </tspan>
+                )}
                 <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
                   {unionSF.toLocaleString()} SF
                 </tspan>

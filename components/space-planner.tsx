@@ -751,6 +751,7 @@ export function SpacePlanner({
                 rx={3}
                 style={{ cursor: "grab" }}
                 onPointerDown={e => startRoomDrag(e, space.id, "move")}
+                onDoubleClick={e => { e.stopPropagation(); setEditingNameId(space.id) }}
               />
               {/* FAR band — tinted strip between outer+inner border lines (conditioned FAR rooms only) */}
               {space.isConditioned && !isMerged && !isPoolDeck && (space.impactsFAR ?? !isNonRoomType(space.type)) && (
@@ -769,83 +770,69 @@ export function SpacePlanner({
                   fill={colors.stroke} fillOpacity={0.45} rx={1.5} pointerEvents="none" />
               )}
 
-              {/* Labels — area-type merged rects suppress all labels (group overlay shows combined).
-                  Compound rooms keep the name visible when deselected so users can orient
-                  themselves; SF/OCC are still suppressed in favour of the group overlay. */}
-              {(!isMerged || isSel || !isAreaType(space.type)) && rw > 28 && rh > 20 && (
+              {/* Rename input — appears on double-click for any rect, merged or not */}
+              {editingNameId === space.id && rw > 28 && rh > 20 && (
+                <foreignObject x={rx + 4} y={ry + 4} width={Math.max(48, rw - 8)} height={22} pointerEvents="all">
+                  <input
+                    autoFocus
+                    defaultValue={space.name}
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()}
+                    onBlur={e => {
+                      const v = e.currentTarget.value.trim()
+                      if (v && v !== space.name) onRenameSpace?.(space.id, v)
+                      setEditingNameId(null)
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        const v = e.currentTarget.value.trim()
+                        if (v && v !== space.name) onRenameSpace?.(space.id, v)
+                        setEditingNameId(null)
+                      } else if (e.key === "Escape") {
+                        setEditingNameId(null)
+                      }
+                    }}
+                    style={{
+                      width: "100%", height: "100%", padding: "0 4px",
+                      fontSize: 11, fontWeight: 700, fontFamily: "system-ui,sans-serif",
+                      color: colors.text, background: hFill,
+                      border: `1px solid ${colors.stroke}`, borderRadius: 3,
+                      outline: "none", boxSizing: "border-box",
+                    }}
+                  />
+                </foreignObject>
+              )}
+
+              {/* Singleton label — name · SF · OCC centered in rect. Hidden for merged
+                  rects (group overlay provides the combined label at union center). */}
+              {!isMerged && editingNameId !== space.id && rw > 28 && rh > 20 && (
                 <g pointerEvents="none">
-                  {editingNameId === space.id ? (
-                    <foreignObject
-                      x={rx + 4}
-                      y={ry + 4}
-                      width={Math.max(48, rw - 8)}
-                      height={22}
-                      pointerEvents="all"
-                    >
-                      <input
-                        autoFocus
-                        defaultValue={space.name}
-                        onPointerDown={e => e.stopPropagation()}
-                        onClick={e => e.stopPropagation()}
-                        onBlur={e => {
-                          const v = e.currentTarget.value.trim()
-                          if (v && v !== space.name) onRenameSpace?.(space.id, v)
-                          setEditingNameId(null)
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === "Enter") {
-                            const v = e.currentTarget.value.trim()
-                            if (v && v !== space.name) onRenameSpace?.(space.id, v)
-                            setEditingNameId(null)
-                          } else if (e.key === "Escape") {
-                            setEditingNameId(null)
-                          }
-                        }}
-                        style={{
-                          width: "100%", height: "100%",
-                          padding: "0 4px",
-                          fontSize: 11, fontWeight: 700,
-                          fontFamily: "system-ui,sans-serif",
-                          color: colors.text,
-                          background: hFill,
-                          border: `1px solid ${colors.stroke}`,
-                          borderRadius: 3,
-                          outline: "none",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                    </foreignObject>
-                  ) : (
-                    <text x={cx2} y={ry + Math.min(20, rh * 0.2)}
+                  {rh > 30 && (
+                    <text x={cx2} y={cy2 - (rh > 60 ? 12 : 4)}
                       textAnchor="middle"
                       fontSize={Math.min(12, Math.max(8, rw / 9))}
-                      fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif"
-                      pointerEvents="all"
-                      style={{ cursor: "text", userSelect: "none" }}
-                      onPointerDown={e => e.stopPropagation()}
-                      onDoubleClick={e => { e.stopPropagation(); setEditingNameId(space.id) }}>
+                      fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
                       {rw > 80 ? space.name : space.name.split(" ")[0]}
                     </text>
                   )}
-                  {/* Per-rect SF/OCC suppressed for merged rects (group overlay shows combined values) */}
-                  {!isMerged && rh > 44 && rw > 40 && (
-                    <text x={cx2} y={ry + Math.min(34, rh * 0.32)}
+                  {rh > 60 && rw > 40 && (
+                    <text x={cx2} y={cy2 + 4}
                       textAnchor="middle"
                       fontSize={Math.min(10, Math.max(7, rw / 14))}
                       fill={colors.text} opacity={0.6} fontFamily="'Geist Mono',monospace">
                       {sf.toLocaleString()} SF
                     </text>
                   )}
-                  {!isMerged && (
-                    <text x={cx2} y={ry + rh - 14}
+                  {rh > 44 && (
+                    <text x={cx2} y={cy2 + (rh > 60 ? 20 : 12)}
                       textAnchor="middle"
                       fontSize={Math.min(16, Math.max(9, rw / 5.5))}
                       fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
                       {occ}
                     </text>
                   )}
-                  {!isMerged && rw > 36 && (
-                    <text x={cx2} y={ry + rh - 4}
+                  {rh > 60 && rw > 36 && (
+                    <text x={cx2} y={cy2 + (rh > 60 ? 30 : 22)}
                       textAnchor="middle" fontSize={6.5}
                       fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
                       OCC
@@ -927,11 +914,10 @@ export function SpacePlanner({
           const maskBase = `wg${gi}`
           const unionSF = Math.round(rectUnionAreaFt(ls))
           const unionOcc = Math.ceil(unionSF / 50)
-          // Label lives in the largest member rect — always inside the compound,
-          // handles L/T/U shapes better than intersection-zone or bounding-box center.
-          const lr = ls.reduce((a, b) => a.w * a.h >= b.w * b.h ? a : b)
-          const labelX = px(lr.x + lr.w / 2)
-          const labelY = px(lr.y + lr.h / 2)
+          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
+          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          const labelX = px((bx0 + bx1) / 2)
+          const labelY = px((by0 + by1) / 2)
           return (
             <g key={`wg-${gi}`} pointerEvents="none">
               <defs>
@@ -973,14 +959,24 @@ export function SpacePlanner({
                   strokeDasharray="6 5" opacity={0.28} rx={3}
                   mask={`url(#${maskBase}-im${ri})`}/>
               ))}
-              {/* Combined SF + occ label centred on the overlap zone */}
-              <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
-                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+              {/* Group label at union bounding-box center — SF · OCC */}
+              <g pointerEvents="none" textAnchor="middle">
+                <text x={labelX} y={labelY - 8}
+                  fontSize={9} fill={colors.text} opacity={0.65}
+                  fontFamily="'Geist Mono',monospace">
                   {unionSF.toLocaleString()} SF
-                </tspan>
-                <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
-                <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
-              </text>
+                </text>
+                <text x={labelX} y={labelY + 8}
+                  fontSize={14} fontWeight="800" fill={occColor}
+                  fontFamily="'Geist Mono',monospace">
+                  {unionOcc}
+                </text>
+                <text x={labelX} y={labelY + 18}
+                  fontSize={6.5} fill={colors.text} opacity={0.4}
+                  fontFamily="'Geist Mono',monospace">
+                  OCC
+                </text>
+              </g>
             </g>
           )
         })}
@@ -1002,11 +998,11 @@ export function SpacePlanner({
             ? Math.max(0, Math.round(rectUnionAreaFt([...ls, ...waterLs]) - rectUnionAreaFt(waterLs)))
             : Math.round(rectUnionAreaFt(ls))
           const unionOcc = Math.ceil(unionSF / loadFactor)
-          // Label lives in the largest member rect — always inside the compound.
-          const lr = ls.reduce((a, b) => a.w * a.h >= b.w * b.h ? a : b)
-          const labelX = px(lr.x + lr.w / 2)
-          const labelY = px(lr.y + lr.h / 2)
-          // For compound rooms (non-area types): show the shared name above the SF/occ.
+          const bx0 = Math.min(...ls.map(l => l.x)), by0 = Math.min(...ls.map(l => l.y))
+          const bx1 = Math.max(...ls.map(l => l.x+l.w)), by1 = Math.max(...ls.map(l => l.y+l.h))
+          const labelX = px((bx0 + bx1) / 2)
+          const labelY = px((by0 + by1) / 2)
+          // Compound rooms show the shared name; area types show type-level label only.
           const isRoomGroup = !isAreaType(group[0].type)
           return (
             <g key={`tg-${gi}`} pointerEvents="none">
@@ -1049,21 +1045,31 @@ export function SpacePlanner({
                   strokeDasharray="6 5" opacity={0.28} rx={3}
                   mask={`url(#${maskBase}-im${ri})`}/>
               ))}
-              {/* Compound label: name (rooms only) · SF · occ */}
-              <text textAnchor="middle" fontFamily="'Geist Mono',monospace">
+              {/* Group overlay label at union bounding-box center — name · SF · OCC */}
+              <g pointerEvents="none" textAnchor="middle">
                 {isRoomGroup && (
-                  <tspan x={labelX} y={labelY - 18}
-                    fontSize={Math.min(12, Math.max(8, px(lr.w) / 9))}
-                    fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
+                  <text x={labelX} y={labelY - 16}
+                    fontSize={12} fontWeight="700"
+                    fill={colors.text} fontFamily="system-ui,sans-serif">
                     {group[0].name}
-                  </tspan>
+                  </text>
                 )}
-                <tspan x={labelX} y={labelY - 4} fontSize={9} fill={colors.text} opacity={0.65}>
+                <text x={labelX} y={isRoomGroup ? labelY - 2 : labelY - 8}
+                  fontSize={9} fill={colors.text} opacity={0.65}
+                  fontFamily="'Geist Mono',monospace">
                   {unionSF.toLocaleString()} SF
-                </tspan>
-                <tspan x={labelX} dy={15} fontSize={14} fontWeight="800" fill={occColor}>{unionOcc}</tspan>
-                <tspan fontSize={7} fill={colors.text} opacity={0.55}> occ</tspan>
-              </text>
+                </text>
+                <text x={labelX} y={isRoomGroup ? labelY + 14 : labelY + 8}
+                  fontSize={14} fontWeight="800" fill={occColor}
+                  fontFamily="'Geist Mono',monospace">
+                  {unionOcc}
+                </text>
+                <text x={labelX} y={isRoomGroup ? labelY + 24 : labelY + 18}
+                  fontSize={6.5} fill={colors.text} opacity={0.4}
+                  fontFamily="'Geist Mono',monospace">
+                  OCC
+                </text>
+              </g>
             </g>
           )
         })}

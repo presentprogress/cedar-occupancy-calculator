@@ -651,10 +651,15 @@ export function SpacePlanner({
 
         {/* ── Unified Pool Deck outline — solid outer boundary + dashed internal reference lines ──
             Combines auto strips + manual deck rects into one shape: outer boundary = solid,
-            shared/internal edges = dashed. Masks use same outer/inner pattern as waterGroups. ── */}
+            shared/internal edges = dashed. Water surfaces are cut from the outer mask so the
+            amber outline doesn't draw at the water/deck boundary (water owns that edge). ── */}
         {(() => {
           const manualDeckLs = spaces
             .filter(s => s.type === "Pool Deck")
+            .map(s => localLayouts[s.id])
+            .filter(Boolean) as {x:number,y:number,w:number,h:number}[]
+          const waterLs = spaces
+            .filter(s => isWaterType(s.type))
             .map(s => localLayouts[s.id])
             .filter(Boolean) as {x:number,y:number,w:number,h:number}[]
           const all = [...autoDeckStripLayouts, ...manualDeckLs]
@@ -666,20 +671,28 @@ export function SpacePlanner({
                 {all.map((_, ri) => (
                   <mask key={ri} id={`dk-o${ri}`}>
                     <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                    {/* Black out other deck rects (1px buffer — tighter than waterGroups to close corner gaps) */}
                     {all.filter((_,j) => j!==ri).map((l, j) => (
                       <rect key={j} fill="black"
-                        x={px(l.x)-2} y={px(l.y)-2}
-                        width={px(l.w)+4} height={px(l.h)+4}/>
+                        x={px(l.x)-1} y={px(l.y)-1}
+                        width={px(l.w)+2} height={px(l.h)+2}/>
+                    ))}
+                    {/* Black out water surfaces — amber line stops at water edge, water's blue stroke owns that boundary */}
+                    {waterLs.map((l, wi) => (
+                      <rect key={`w${wi}`} fill="black"
+                        x={px(l.x)-1} y={px(l.y)-1}
+                        width={px(l.w)+2} height={px(l.h)+2}/>
                     ))}
                   </mask>
                 ))}
                 {all.map((_, ri) => (
                   <mask key={ri} id={`dk-i${ri}`}>
                     <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                    {/* Shrink white regions 1px inward — prevents stroke bleed at corners between non-overlapping strips */}
                     {all.filter((_,j) => j!==ri).map((l, j) => (
                       <rect key={j} fill="white"
-                        x={px(l.x)} y={px(l.y)}
-                        width={px(l.w)} height={px(l.h)}/>
+                        x={px(l.x)+1} y={px(l.y)+1}
+                        width={Math.max(0,px(l.w)-2)} height={Math.max(0,px(l.h)-2)}/>
                     ))}
                   </mask>
                 ))}
@@ -793,11 +806,26 @@ export function SpacePlanner({
                     </clipPath>
                   </defs>
                   <g pointerEvents="none" clipPath={`url(#lc-${space.id})`}>
-                    {/* Translucent pill behind text for legibility near rect borders */}
-                    <rect
-                      x={cx2 - Math.min(rw / 2 - 6, 44)} y={cy2 - (rh > 60 ? 26 : 18)}
-                      width={Math.min(rw - 12, 88)} height={rh > 60 ? 48 : 28}
-                      rx={6} fill={isDark ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.6)"}/>
+                    {/* Translucent pill — sized to the visible label content */}
+                    {(() => {
+                      const showName = rh > 30
+                      const showSF   = rh > 60 && rw > 40
+                      const showOCC  = rh > 44
+                      const showTag  = rh > 60 && rw > 36
+                      const displayName = rw > 80 ? space.name : space.name.split(" ")[0]
+                      const nameEm  = Math.min(12, Math.max(8, rw / 9))
+                      const estNameW = displayName.length * nameEm * 0.58
+                      const estSFW   = showSF ? (`${sf.toLocaleString()} SF`.length * 6.5) : 0
+                      const estOCCW  = showOCC ? (String(occ).length * 10 + 10) : 0
+                      const pillW = Math.min(rw - 10, Math.max(estNameW, estSFW, estOCCW) + 16)
+                      const pillH = showSF || showTag ? 50 : showOCC ? 34 : 22
+                      return (
+                        <rect
+                          x={cx2 - pillW / 2} y={cy2 - (rh > 60 ? 28 : 18)}
+                          width={pillW} height={Math.min(rh - 10, pillH)}
+                          rx={6} fill={isDark ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.6)"}/>
+                      )
+                    })()}
                     {rh > 30 && (
                       <text x={cx2} y={cy2 - (rh > 60 ? 12 : 4)}
                         textAnchor="middle"
@@ -953,8 +981,7 @@ export function SpacePlanner({
               ))}
               {/* Group label at union bounding-box center — name · SF · OCC */}
               <g pointerEvents="none" textAnchor="middle">
-                <rect x={labelX - 46} y={labelY - 28} width={92} height={58}
-                  rx={8} fill={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.65)"}/>
+                {(() => { const pw = Math.min(160, Math.max(72, group[0].name.length * 7 + 24)); return <rect x={labelX - pw/2} y={labelY - 28} width={pw} height={58} rx={8} fill={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.65)"}/>; })()}
                 <text x={labelX} y={labelY - 16}
                   fontSize={12} fontWeight="700"
                   fill={colors.text} fontFamily="system-ui,sans-serif">
@@ -1047,8 +1074,7 @@ export function SpacePlanner({
               )}
               {/* Group label — pill background ensures legibility near borders */}
               <g pointerEvents="none" textAnchor="middle">
-                <rect x={labelX - 46} y={labelY - 28} width={92} height={58}
-                  rx={8} fill={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.65)"}/>
+                {(() => { const pw = Math.min(160, Math.max(72, group[0].name.length * 7 + 24)); return <rect x={labelX - pw/2} y={labelY - 28} width={pw} height={58} rx={8} fill={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.65)"}/>; })()}
                 <text x={labelX} y={labelY - 16}
                   fontSize={12} fontWeight="700"
                   fill={colors.text} fontFamily="system-ui,sans-serif">

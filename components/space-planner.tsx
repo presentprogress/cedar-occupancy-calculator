@@ -642,10 +642,61 @@ export function SpacePlanner({
               {autoDeckStripLayouts.map((l, i) => (
                 <rect key={`ads-${i}`}
                   x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
-                  fill={colors.fill} fillOpacity={isDark ? 0.92 : 0.9}
-                  stroke={colors.stroke} strokeWidth={1.5} rx={2}/>
+                  fill={colors.fill} fillOpacity={isDark ? 0.92 : 0.9}/>
               ))}
               {labelEl}
+            </g>
+          )
+        })()}
+
+        {/* ── Unified Pool Deck outline — solid outer boundary + dashed internal reference lines ──
+            Combines auto strips + manual deck rects into one shape: outer boundary = solid,
+            shared/internal edges = dashed. Masks use same outer/inner pattern as waterGroups. ── */}
+        {(() => {
+          const manualDeckLs = spaces
+            .filter(s => s.type === "Pool Deck")
+            .map(s => localLayouts[s.id])
+            .filter(Boolean) as {x:number,y:number,w:number,h:number}[]
+          const all = [...autoDeckStripLayouts, ...manualDeckLs]
+          if (all.length === 0) return null
+          const colors = palette["Pool Deck"] ?? fb
+          return (
+            <g pointerEvents="none">
+              <defs>
+                {all.map((_, ri) => (
+                  <mask key={ri} id={`dk-o${ri}`}>
+                    <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                    {all.filter((_,j) => j!==ri).map((l, j) => (
+                      <rect key={j} fill="black"
+                        x={px(l.x)-2} y={px(l.y)-2}
+                        width={px(l.w)+4} height={px(l.h)+4}/>
+                    ))}
+                  </mask>
+                ))}
+                {all.map((_, ri) => (
+                  <mask key={ri} id={`dk-i${ri}`}>
+                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                    {all.filter((_,j) => j!==ri).map((l, j) => (
+                      <rect key={j} fill="white"
+                        x={px(l.x)} y={px(l.y)}
+                        width={px(l.w)} height={px(l.h)}/>
+                    ))}
+                  </mask>
+                ))}
+              </defs>
+              {all.map((l, ri) => (
+                <rect key={`dko${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
+                  mask={`url(#dk-o${ri})`}/>
+              ))}
+              {all.map((l, ri) => (
+                <rect key={`dki${ri}`}
+                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                  fill="none" stroke={colors.stroke} strokeWidth={1}
+                  strokeDasharray="6 5" opacity={0.3} rx={3}
+                  mask={`url(#dk-i${ri})`}/>
+              ))}
             </g>
           )
         })()}
@@ -732,41 +783,54 @@ export function SpacePlanner({
               )}
 
               {/* Singleton label — name · SF · OCC centered in rect. Hidden for merged
-                  rects (group overlay provides the combined label at union center). */}
+                  rects (group overlay provides the combined label at union center).
+                  Pill background + clip path prevent text touching or crossing the border. */}
               {!isMerged && editingNameId !== space.id && rw > 28 && rh > 20 && (
-                <g pointerEvents="none">
-                  {rh > 30 && (
-                    <text x={cx2} y={cy2 - (rh > 60 ? 12 : 4)}
-                      textAnchor="middle"
-                      fontSize={Math.min(12, Math.max(8, rw / 9))}
-                      fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
-                      {rw > 80 ? space.name : space.name.split(" ")[0]}
-                    </text>
-                  )}
-                  {rh > 60 && rw > 40 && (
-                    <text x={cx2} y={cy2 + 4}
-                      textAnchor="middle"
-                      fontSize={Math.min(10, Math.max(7, rw / 14))}
-                      fill={colors.text} opacity={0.6} fontFamily="'Geist Mono',monospace">
-                      {sf.toLocaleString()} SF
-                    </text>
-                  )}
-                  {rh > 44 && (
-                    <text x={cx2} y={cy2 + (rh > 60 ? 20 : 12)}
-                      textAnchor="middle"
-                      fontSize={Math.min(16, Math.max(9, rw / 5.5))}
-                      fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
-                      {occ}
-                    </text>
-                  )}
-                  {rh > 60 && rw > 36 && (
-                    <text x={cx2} y={cy2 + (rh > 60 ? 30 : 22)}
-                      textAnchor="middle" fontSize={6.5}
-                      fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
-                      OCC
-                    </text>
-                  )}
-                </g>
+                <>
+                  <defs>
+                    <clipPath id={`lc-${space.id}`}>
+                      <rect x={rx + 5} y={ry + 5} width={Math.max(0, rw - 10)} height={Math.max(0, rh - 10)}/>
+                    </clipPath>
+                  </defs>
+                  <g pointerEvents="none" clipPath={`url(#lc-${space.id})`}>
+                    {/* Translucent pill behind text for legibility near rect borders */}
+                    <rect
+                      x={cx2 - Math.min(rw / 2 - 6, 44)} y={cy2 - (rh > 60 ? 26 : 18)}
+                      width={Math.min(rw - 12, 88)} height={rh > 60 ? 48 : 28}
+                      rx={6} fill={isDark ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.6)"}/>
+                    {rh > 30 && (
+                      <text x={cx2} y={cy2 - (rh > 60 ? 12 : 4)}
+                        textAnchor="middle"
+                        fontSize={Math.min(12, Math.max(8, rw / 9))}
+                        fill={colors.text} fontWeight="700" fontFamily="system-ui,sans-serif">
+                        {rw > 80 ? space.name : space.name.split(" ")[0]}
+                      </text>
+                    )}
+                    {rh > 60 && rw > 40 && (
+                      <text x={cx2} y={cy2 + 4}
+                        textAnchor="middle"
+                        fontSize={Math.min(10, Math.max(7, rw / 14))}
+                        fill={colors.text} opacity={0.6} fontFamily="'Geist Mono',monospace">
+                        {sf.toLocaleString()} SF
+                      </text>
+                    )}
+                    {rh > 44 && (
+                      <text x={cx2} y={cy2 + (rh > 60 ? 20 : 12)}
+                        textAnchor="middle"
+                        fontSize={Math.min(16, Math.max(9, rw / 5.5))}
+                        fill={occColor} fontWeight="800" fontFamily="'Geist Mono',monospace">
+                        {occ}
+                      </text>
+                    )}
+                    {rh > 60 && rw > 36 && (
+                      <text x={cx2} y={cy2 + (rh > 60 ? 30 : 22)}
+                        textAnchor="middle" fontSize={6.5}
+                        fill={colors.text} opacity={0.4} fontFamily="'Geist Mono',monospace">
+                        OCC
+                      </text>
+                    )}
+                  </g>
+                </>
               )}
 
               {/* Dimension callouts when selected */}
@@ -889,6 +953,8 @@ export function SpacePlanner({
               ))}
               {/* Group label at union bounding-box center — name · SF · OCC */}
               <g pointerEvents="none" textAnchor="middle">
+                <rect x={labelX - 46} y={labelY - 28} width={92} height={58}
+                  rx={8} fill={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.65)"}/>
                 <text x={labelX} y={labelY - 16}
                   fontSize={12} fontWeight="700"
                   fill={colors.text} fontFamily="system-ui,sans-serif">
@@ -939,47 +1005,50 @@ export function SpacePlanner({
           const labelY = px((by0 + by1) / 2)
           return (
             <g key={`tg-${gi}`} pointerEvents="none">
-              <defs>
-                {ls.map((_, ri) => (
-                  <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
-                    {/* Outer stroke mask: white everywhere except other rects (+ 2px buffer) */}
-                    <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
-                    {ls.filter((_,j) => j !== ri).map((l, j) => (
-                      <rect key={j} fill="black"
-                        x={px(l.x)-2} y={px(l.y)-2}
-                        width={px(l.w)+4} height={px(l.h)+4}/>
+              {/* Deck strokes handled by unified deck outline block — skip for Pool Deck */}
+              {!isDeckGroup && (
+                <>
+                  <defs>
+                    {ls.map((_, ri) => (
+                      <mask key={`o-${ri}`} id={`${maskBase}-m${ri}`}>
+                        <rect fill="white" x={0} y={0} width={svgW} height={svgH}/>
+                        {ls.filter((_,j) => j !== ri).map((l, j) => (
+                          <rect key={j} fill="black"
+                            x={px(l.x)-2} y={px(l.y)-2}
+                            width={px(l.w)+4} height={px(l.h)+4}/>
+                        ))}
+                      </mask>
                     ))}
-                  </mask>
-                ))}
-                {ls.map((_, ri) => (
-                  <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
-                    {/* Inner dash mask: black everywhere except inside the other rects */}
-                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
-                    {ls.filter((_,j) => j !== ri).map((l, j) => (
-                      <rect key={j} fill="white"
-                        x={px(l.x)} y={px(l.y)}
-                        width={px(l.w)} height={px(l.h)}/>
+                    {ls.map((_, ri) => (
+                      <mask key={`i-${ri}`} id={`${maskBase}-im${ri}`}>
+                        <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                        {ls.filter((_,j) => j !== ri).map((l, j) => (
+                          <rect key={j} fill="white"
+                            x={px(l.x)} y={px(l.y)}
+                            width={px(l.w)} height={px(l.h)}/>
+                        ))}
+                      </mask>
                     ))}
-                  </mask>
-                ))}
-              </defs>
-              {/* Outer boundary strokes — masked to hide the internal edges */}
-              {ls.map((l, ri) => (
-                <rect key={`outer-${ri}`}
-                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
-                  fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
-                  mask={`url(#${maskBase}-m${ri})`}/>
-              ))}
-              {/* Inner dashes — show only inside the overlap zone, lightly distinguish bodies */}
-              {ls.map((l, ri) => (
-                <rect key={`dash-${ri}`}
-                  x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
-                  fill="none" stroke={colors.stroke} strokeWidth={1}
-                  strokeDasharray="6 5" opacity={0.28} rx={3}
-                  mask={`url(#${maskBase}-im${ri})`}/>
-              ))}
-              {/* Group overlay label at union bounding-box center — name · SF · OCC */}
+                  </defs>
+                  {ls.map((l, ri) => (
+                    <rect key={`outer-${ri}`}
+                      x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                      fill="none" stroke={colors.stroke} strokeWidth={1.5} rx={3}
+                      mask={`url(#${maskBase}-m${ri})`}/>
+                  ))}
+                  {ls.map((l, ri) => (
+                    <rect key={`dash-${ri}`}
+                      x={px(l.x)} y={px(l.y)} width={px(l.w)} height={px(l.h)}
+                      fill="none" stroke={colors.stroke} strokeWidth={1}
+                      strokeDasharray="6 5" opacity={0.28} rx={3}
+                      mask={`url(#${maskBase}-im${ri})`}/>
+                  ))}
+                </>
+              )}
+              {/* Group label — pill background ensures legibility near borders */}
               <g pointerEvents="none" textAnchor="middle">
+                <rect x={labelX - 46} y={labelY - 28} width={92} height={58}
+                  rx={8} fill={isDark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.65)"}/>
                 <text x={labelX} y={labelY - 16}
                   fontSize={12} fontWeight="700"
                   fill={colors.text} fontFamily="system-ui,sans-serif">
@@ -1053,7 +1122,8 @@ export function SpacePlanner({
           const layout = localLayouts[space.id]
           if (!layout) return null
           const isPoolDeck = space.type === "Pool Deck"
-          if (!space.isConditioned && !isPoolDeck) return null
+          if (isPoolDeck) return null  // unified deck outline block handles all Pool Deck strokes
+          if (!space.isConditioned) return null
           if (isWaterType(space.type)) return null
           const isMerged = mergedWaterIds.has(space.id) || mergedAreaIds.has(space.id)
           if (isMerged) return null
@@ -1066,7 +1136,7 @@ export function SpacePlanner({
             <g key={`solid-${space.id}`} pointerEvents="none">
               <rect x={rx2} y={ry2} width={rw2} height={rh2}
                 fill="none" stroke={colors.stroke} strokeWidth={sw} rx={3}/>
-              {!isPoolDeck && rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
+              {rw2 > INNER_INSET * 2 + 4 && rh2 > INNER_INSET * 2 + 4 && (
                 <rect x={rx2 + INNER_INSET} y={ry2 + INNER_INSET}
                   width={rw2 - INNER_INSET * 2} height={rh2 - INNER_INSET * 2}
                   fill="none" stroke={colors.stroke} strokeWidth={1}

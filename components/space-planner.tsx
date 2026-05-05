@@ -685,17 +685,23 @@ export function SpacePlanner({
                     ))}
                   </mask>
                 ))}
-                {all.map((_, ri) => (
-                  <mask key={ri} id={`dk-i${ri}`}>
-                    <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
-                    {/* Shrink white regions 1px inward — prevents stroke bleed at corners between non-overlapping strips */}
-                    {all.filter((_,j) => j!==ri).map((l, j) => (
-                      <rect key={j} fill="white"
-                        x={px(l.x)+1} y={px(l.y)+1}
-                        width={Math.max(0,px(l.w)-2)} height={Math.max(0,px(l.h)-2)}/>
-                    ))}
-                  </mask>
-                ))}
+                {all.map((_, ri) => {
+                  const nStrips = autoDeckStripLayouts.length
+                  const isStrip = ri < nStrips
+                  return (
+                    <mask key={ri} id={`dk-i${ri}`}>
+                      <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
+                      {/* Inner dashes only between manual-deck-vs-manual-deck overlaps.
+                          Auto strips are synthetic — their "overlap" with manual rects or
+                          each other should never trigger dashes (source of spa ghost lines). */}
+                      {!isStrip && manualDeckLs.filter((_,j) => j !== ri - nStrips).map((l, j) => (
+                        <rect key={j} fill="white"
+                          x={px(l.x)+1} y={px(l.y)+1}
+                          width={Math.max(0,px(l.w)-2)} height={Math.max(0,px(l.h)-2)}/>
+                      ))}
+                    </mask>
+                  )
+                })}
               </defs>
               {all.map((l, ri) => (
                 <rect key={`dko${ri}`}
@@ -714,8 +720,11 @@ export function SpacePlanner({
           )
         })()}
 
-        {/* ── ROOMS — larger areas rendered first (lower z) ── */}
+        {/* ── ROOMS — Pool Deck renders first (below water), then larger areas first ── */}
         {[...spaces].sort((a, b) => {
+          const aIsDeck = a.type === "Pool Deck", bIsDeck = b.type === "Pool Deck"
+          if (aIsDeck && !bIsDeck) return -1  // deck below everything (water fills over it)
+          if (!aIsDeck && bIsDeck) return 1
           const la = localLayouts[a.id], lb = localLayouts[b.id]
           if (!la || !lb) return 0
           return (lb.w * lb.h) - (la.w * la.h)

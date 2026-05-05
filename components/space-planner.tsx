@@ -688,13 +688,17 @@ export function SpacePlanner({
                 {all.map((_, ri) => {
                   const nStrips = autoDeckStripLayouts.length
                   const isStrip = ri < nStrips
+                  // Each rect's inner mask whites out only its own kind:
+                  // auto strips white out other auto strips → strip-vs-strip reference dashes
+                  // manual rects white out other manual rects → manual-vs-manual reference dashes
+                  // Cross-kind whiting causes corner artifacts (manual rect whitening strip masks)
+                  const peers = isStrip
+                    ? autoDeckStripLayouts.filter((_, j) => j !== ri)
+                    : manualDeckLs.filter((_, j) => j !== ri - nStrips)
                   return (
                     <mask key={ri} id={`dk-i${ri}`}>
                       <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>
-                      {/* Inner dashes only between manual-deck-vs-manual-deck overlaps.
-                          Auto strips are synthetic — their "overlap" with manual rects or
-                          each other should never trigger dashes (source of spa ghost lines). */}
-                      {!isStrip && manualDeckLs.filter((_,j) => j !== ri - nStrips).map((l, j) => (
+                      {peers.map((l, j) => (
                         <rect key={j} fill="white"
                           x={px(l.x)+1} y={px(l.y)+1}
                           width={Math.max(0,px(l.w)-2)} height={Math.max(0,px(l.h)-2)}/>

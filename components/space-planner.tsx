@@ -688,13 +688,17 @@ export function SpacePlanner({
                 {all.map((_, ri) => {
                   const nStrips = autoDeckStripLayouts.length
                   const isStrip = ri < nStrips
-                  // Each rect's inner mask whites out only its own kind:
-                  // auto strips white out other auto strips → strip-vs-strip reference dashes
-                  // manual rects white out other manual rects → manual-vs-manual reference dashes
-                  // Cross-kind whiting causes corner artifacts (manual rect whitening strip masks)
+                  // Auto strips white out only other auto strips (they're non-overlapping by
+                  // design, so this produces zero dashes for isolated pools — correct).
+                  // Prevents the corner artifact: auto strip masks must NOT white out manual
+                  // deck rects, which caused spurious dashes at water surface corners.
+                  //
+                  // Manual deck rects white out ALL other deck rects (auto strips + other
+                  // manual rects). Dashes appear on the manual-deck side where it overlaps
+                  // auto strips, giving the wanted reference lines without strip-side artifacts.
                   const peers = isStrip
                     ? autoDeckStripLayouts.filter((_, j) => j !== ri)
-                    : manualDeckLs.filter((_, j) => j !== ri - nStrips)
+                    : all.filter((_, j) => j !== ri)
                   return (
                     <mask key={ri} id={`dk-i${ri}`}>
                       <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>

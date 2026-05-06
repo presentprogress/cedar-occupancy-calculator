@@ -688,17 +688,14 @@ export function SpacePlanner({
                 {all.map((_, ri) => {
                   const nStrips = autoDeckStripLayouts.length
                   const isStrip = ri < nStrips
-                  // Auto strips white out only other auto strips (they're non-overlapping by
-                  // design, so this produces zero dashes for isolated pools — correct).
-                  // Prevents the corner artifact: auto strip masks must NOT white out manual
-                  // deck rects, which caused spurious dashes at water surface corners.
+                  // Auto strips: no inner dashes at all. Same-pool strips are non-overlapping
+                  // by design; cross-pool strips at coincident positions create ghost dashes
+                  // (e.g. main pool bottom strip Y crossing cold spa left strip area).
                   //
                   // Manual deck rects white out ALL other deck rects (auto strips + other
-                  // manual rects). Dashes appear on the manual-deck side where it overlaps
-                  // auto strips, giving the wanted reference lines without strip-side artifacts.
-                  const peers = isStrip
-                    ? autoDeckStripLayouts.filter((_, j) => j !== ri)
-                    : all.filter((_, j) => j !== ri)
+                  // manual rects). Reference dashes appear on the manual-deck side where it
+                  // overlaps auto strips — giving the wanted boundary lines with no strip artifacts.
+                  const peers = isStrip ? [] : all.filter((_, j) => j !== ri)
                   return (
                     <mask key={ri} id={`dk-i${ri}`}>
                       <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>

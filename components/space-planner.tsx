@@ -688,14 +688,20 @@ export function SpacePlanner({
                 {all.map((_, ri) => {
                   const nStrips = autoDeckStripLayouts.length
                   const isStrip = ri < nStrips
-                  // Auto strips: no inner dashes at all. Same-pool strips are non-overlapping
-                  // by design; cross-pool strips at coincident positions create ghost dashes
-                  // (e.g. main pool bottom strip Y crossing cold spa left strip area).
+                  // Auto strips peer only with same-orientation strips (horizontal↔horizontal,
+                  // vertical↔vertical). Cross-orientation peering (e.g. main pool bottom strip
+                  // whiting out cold spa left strip) creates ghost dashes at the intersection
+                  // corner. Same-pool strips of the same orientation never overlap, so that case
+                  // is harmless; cross-pool same-orientation strips DO overlap when rings adjoin,
+                  // producing the wanted reference dash between the two auto-deck rings.
                   //
                   // Manual deck rects white out ALL other deck rects (auto strips + other
-                  // manual rects). Reference dashes appear on the manual-deck side where it
-                  // overlaps auto strips — giving the wanted boundary lines with no strip artifacts.
-                  const peers = isStrip ? [] : all.filter((_, j) => j !== ri)
+                  // manual rects) so reference dashes appear wherever a manual rect overlaps
+                  // the auto-deck ring or another manual rect.
+                  const isHoriz = (l: {w:number,h:number}) => l.w > l.h
+                  const peers = isStrip
+                    ? autoDeckStripLayouts.filter((sl, j) => j !== ri && isHoriz(sl) === isHoriz(all[ri]))
+                    : all.filter((_, j) => j !== ri)
                   return (
                     <mask key={ri} id={`dk-i${ri}`}>
                       <rect fill="black" x={0} y={0} width={svgW} height={svgH}/>

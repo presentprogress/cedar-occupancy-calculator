@@ -50,8 +50,7 @@ export function EquipmentEditor({
       <div className="divide-y divide-border/50">
         {equipment.map((item) => {
           const shared = computedShared[item.id] ?? 0
-          const total = (item.footprint + item.accessSpace) * item.quantity
-            - shared * Math.max(0, item.quantity - 1)
+          const total = (item.footprint + item.accessSpace) * item.quantity - shared
 
           return (
             <div key={item.id} className="px-4 py-3 space-y-2">

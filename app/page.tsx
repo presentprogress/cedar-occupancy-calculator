@@ -20,7 +20,11 @@ import { useAutoSnapshot } from "@/hooks/use-auto-snapshot"
 import {
   IBC_LOAD_FACTORS,
   isNonRoomType,
+  isWaterType,
+  isGymType,
+  isAreaType,
   rectsOverlap,
+  rectsTouch,
   type SpaceType,
   type SpaceArea,
   type EquipmentItem,
@@ -134,7 +138,7 @@ export default function OccupancyCalculator() {
     setAppState((prev) => {
       const srcIndex = prev.spaces.findIndex(s => s.id === srcId)
       const newSpaces = [...prev.spaces]
-      newSpaces.splice(srcIndex + 1, 0, { ...src, id, name: `${src.name} (copy)` })
+      newSpaces.splice(srcIndex + 1, 0, { ...src, id })
       return {
         ...prev,
         spaces: newSpaces,
@@ -210,8 +214,6 @@ export default function OccupancyCalculator() {
       return a
     }
 
-    const waterTypes = new Set(["Swimming Pool (Water Surface)", "Spa/Hot Tub (Water Surface)", "Cold Plunge (Water Surface)"])
-
     // Resolve impactsOccupancy with backward-compat for old excludeFromOccupancy field
     const impactsOcc = (s: SpaceArea) => s.impactsOccupancy ?? !(s.excludeFromOccupancy ?? false)
 
@@ -227,29 +229,149 @@ export default function OccupancyCalculator() {
       }
     })
 
-    // Correct overlapping water surface occupancies to use union area (prevents double-counting)
-    const activeWater = spaceResults.filter(s => waterTypes.has(s.type) && !s.outsideEnclosure && impactsOcc(s))
-    const seenWaterIds = new Set<string>()
-    const waterOccFix = new Map<string, number>()
-    for (const s of activeWater) {
-      if (seenWaterIds.has(s.id)) continue
-      const grp = [s]; seenWaterIds.add(s.id)
-      const la = spaceLayouts[s.id]
-      for (const o of activeWater) {
-        if (seenWaterIds.has(o.id)) continue
-        const lb = spaceLayouts[o.id]
-        if (la && lb && rectsOverlap(la, lb)) { grp.push(o); seenWaterIds.add(o.id) }
+    // ── Area-type group merging (BFS, rectsTouch) ──────────────────────────────
+    // Area types are unenclosed zones — same-type areas touching/overlapping merge
+    // into one compound shape. Occupancy = union area / load factor (not per-rect sum).
+    // Water subtypes all share one group key; other area types group by specific type.
+    // Pool deck is clipped against the water surface union: water owns the contested zone.
+    const activeAreaSpaces = spaceResults.filter(
+      s => isAreaType(s.type) && !s.outsideEnclosure && impactsOcc(s)
+    )
+    const waterLayouts = activeAreaSpaces
+      .filter(s => isWaterType(s.type))
+      .map(s => spaceLayouts[s.id])
+      .filter((l): l is SpaceLayout => Boolean(l))
+
+    // ── Combined pool deck (manual + auto rings, water-clipped) ────────────────
+    // Auto-deck (3' setback ring) and manual deck both share Pool Deck type and
+    // load factor. They merge into one compound deck shape, then water union is
+    // subtracted (water owns contested zones). Single ceil at the end.
+    const SETBACK = 3
+    const autoDeckRings: SpaceLayout[] = (() => {
+      const rings: SpaceLayout[] = []
+      const waterAreaSpaces = activeAreaSpaces.filter(s => isWaterType(s.type))
+      for (const s of waterAreaSpaces) {
+        const l = spaceLayouts[s.id]
+        if (!l) continue
+        rings.push({ x: l.x - SETBACK, y: l.y - SETBACK, w: l.w + SETBACK * 2, h: l.h + SETBACK * 2 })
       }
-      if (grp.length > 1) {
-        const ls = grp.map(g => spaceLayouts[g.id]).filter(Boolean)
-        const unionSF = ls.length === grp.length ? rectUnionArea(ls) : grp.reduce((a, g) => a + g.squareFeet, 0)
-        const groupOcc = Math.ceil(unionSF / 50)
-        grp.forEach((g, i) => waterOccFix.set(g.id, i === 0 ? groupOcc : 0))
+      return rings
+    })()
+    const manualDeckLayouts = activeAreaSpaces
+      .filter(s => s.type === "Pool Deck")
+      .map(s => spaceLayouts[s.id])
+      .filter((l): l is SpaceLayout => Boolean(l))
+    const hasManualPoolDeck = manualDeckLayouts.length > 0
+    const allDeckLayouts = [...manualDeckLayouts, ...autoDeckRings]
+    const combinedDeckSF = allDeckLayouts.length === 0
+      ? 0
+      : waterLayouts.length > 0
+        ? Math.max(0, Math.round(
+            rectUnionArea([...allDeckLayouts, ...waterLayouts]) - rectUnionArea(waterLayouts)
+          ))
+        : Math.max(0, Math.round(rectUnionArea(allDeckLayouts)))
+    const combinedDeckOcc = combinedDeckSF > 0
+      ? Math.ceil(combinedDeckSF / IBC_LOAD_FACTORS["Pool Deck"])
+      : 0
+
+    const areaOccFix = new Map<string, number>()
+    let combinedDeckAssigned = false
+    {
+      const seen = new Set<string>()
+      for (const s of activeAreaSpaces) {
+        if (seen.has(s.id)) continue
+        const la = spaceLayouts[s.id]
+        if (!la) { seen.add(s.id); continue }
+
+        const gKey = isWaterType(s.type) ? "__water__" : s.type
+
+        // BFS: collect all connected same-group spaces via touch/overlap
+        const group = [s]; seen.add(s.id)
+        let qi = 0
+        while (qi < group.length) {
+          const lc = spaceLayouts[group[qi++].id]
+          if (!lc) continue
+          for (const other of activeAreaSpaces) {
+            if (seen.has(other.id)) continue
+            if ((isWaterType(other.type) ? "__water__" : other.type) !== gKey) continue
+            const lo = spaceLayouts[other.id]
+            if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
+          }
+        }
+
+        // Pool Deck is special: all manual deck rects + auto-deck rings merge
+        // into ONE facility-wide combined deck (computed above). The first
+        // manual deck group encountered carries combinedDeckOcc; subsequent
+        // groups are zeroed to prevent double-counting.
+        const isPoolDeck = s.type === "Pool Deck"
+        if (isPoolDeck) {
+          if (!combinedDeckAssigned) {
+            group.forEach((g, i) => areaOccFix.set(g.id, i === 0 ? combinedDeckOcc : 0))
+            combinedDeckAssigned = true
+          } else {
+            group.forEach(g => areaOccFix.set(g.id, 0))
+          }
+          continue
+        }
+
+        // Non-deck areas: singletons preserve their squareFeet-based occupancy
+        // from spaceResults (users can edit SF directly without resizing).
+        // Only multi-member groups need union-area override.
+        const isMultiMember = group.length > 1
+        if (!isMultiMember) continue
+
+        const groupLayouts = group
+          .map(g => spaceLayouts[g.id])
+          .filter((l): l is SpaceLayout => Boolean(l))
+        const groupSF = groupLayouts.length === group.length
+          ? Math.round(rectUnionArea(groupLayouts))
+          : group.reduce((a, g) => a + g.squareFeet, 0)
+        const groupOcc = Math.ceil(groupSF / IBC_LOAD_FACTORS[s.type])
+        group.forEach((g, i) => areaOccFix.set(g.id, i === 0 ? groupOcc : 0))
       }
     }
-    const finalSpaceResults = waterOccFix.size === 0
+
+    // ── Room compound shapes (type+name BFS) ───────────────────────────────────
+    // Enclosed rooms with the same type AND same name that touch/overlap merge
+    // into a compound (non-rectangular) room. Different names = different rooms,
+    // even if touching. Singletons keep their squareFeet-based occupancy.
+    const enclosedRoomSpaces = spaceResults.filter(
+      s => !isAreaType(s.type) && !s.outsideEnclosure && impactsOcc(s)
+    )
+    {
+      const seen = new Set<string>()
+      for (const s of enclosedRoomSpaces) {
+        if (seen.has(s.id)) continue
+        const la = spaceLayouts[s.id]
+        if (!la) { seen.add(s.id); continue }
+        const gKey = `${s.type}\0${s.name}`
+        const group = [s]; seen.add(s.id)
+        let qi = 0
+        while (qi < group.length) {
+          const lc = spaceLayouts[group[qi++].id]
+          if (!lc) continue
+          for (const other of enclosedRoomSpaces) {
+            if (seen.has(other.id)) continue
+            if (`${other.type}\0${other.name}` !== gKey) continue
+            const lo = spaceLayouts[other.id]
+            if (lo && rectsTouch(lc, lo)) { group.push(other); seen.add(other.id) }
+          }
+        }
+        if (group.length < 2) continue
+        const groupLayouts = group
+          .map(g => spaceLayouts[g.id])
+          .filter((l): l is SpaceLayout => Boolean(l))
+        const groupSF = groupLayouts.length === group.length
+          ? Math.round(rectUnionArea(groupLayouts))
+          : group.reduce((a, g) => a + g.squareFeet, 0)
+        const groupOcc = Math.ceil(groupSF / IBC_LOAD_FACTORS[s.type])
+        group.forEach((g, i) => areaOccFix.set(g.id, i === 0 ? groupOcc : 0))
+      }
+    }
+
+    const finalSpaceResults = areaOccFix.size === 0
       ? spaceResults
-      : spaceResults.map(s => waterOccFix.has(s.id) ? { ...s, occupancy: waterOccFix.get(s.id)! } : s)
+      : spaceResults.map(s => areaOccFix.has(s.id) ? { ...s, occupancy: areaOccFix.get(s.id)! } : s)
 
     // Compute shared clearance from canvas positions (intersection of clearance zones)
     const positions = appState.plannerLayout?.equipmentPositions ?? {}
@@ -283,7 +405,7 @@ export default function OccupancyCalculator() {
     const equipmentResults = equipment.map((item) => {
       const shared = computedShared[item.id] ?? 0
       const unit = item.footprint + item.accessSpace
-      return { ...item, totalSpace: unit * item.quantity - shared * Math.max(0, item.quantity - 1) }
+      return { ...item, totalSpace: unit * item.quantity - shared }
     })
 
     const totalEquipmentSpace = equipmentResults.reduce((s, e) => s + e.totalSpace, 0)
@@ -311,34 +433,16 @@ export default function OccupancyCalculator() {
     const circulationSF = Math.max(0, enclosureArea - roomsInEnclosureSF)
     const circulationOcc = circulationSF > 0 ? Math.ceil(circulationSF / IBC_LOAD_FACTORS["Circulation"]) : 0
 
-    // Auto pool-deck occupancy — 3' setback ring around each water surface group.
-    // Skipped when user has manually defined Pool Deck spaces (avoids double-counting).
-    const hasManualPoolDeck = spaces.some(s => s.type === "Pool Deck")
-    const waterSpacesForDeck = spaces.filter(s => waterTypes.has(s.type) && inBoundsSF(s))
-    const seenW = new Set<string>()
-    let autoDeckOcc = 0
-    if (!hasManualPoolDeck) {
-      for (const s of waterSpacesForDeck) {
-        if (seenW.has(s.id)) continue
-        const grp = [s]; seenW.add(s.id)
-        const la = spaceLayouts[s.id]
-        for (const o of waterSpacesForDeck) {
-          if (seenW.has(o.id)) continue
-          const lb = spaceLayouts[o.id]
-          if (la && lb && rectsOverlap(la, lb)) { grp.push(o); seenW.add(o.id) }
-        }
-        const ls = grp.map(g => spaceLayouts[g.id]).filter(Boolean)
-        if (!ls.length) continue
-        const waterArea = rectUnionArea(ls)
-        const expanded = ls.map(l => ({ x: l.x-3, y: l.y-3, w: l.w+6, h: l.h+6 }))
-        const deckSF = Math.max(0, Math.round(rectUnionArea(expanded) - waterArea))
-        autoDeckOcc += Math.ceil(deckSF / 15)
-      }
-    }
+    // Auto pool-deck occupancy: when no manual deck exists, the combined deck
+    // calc above is purely the auto-ring contribution and is reported here.
+    // When manual deck exists, combinedDeckOcc is attributed to manual deck via
+    // areaOccFix, so this line zeros to prevent double-counting.
+    const autoDeckOcc = hasManualPoolDeck ? 0 : combinedDeckOcc
 
     const totalOccupancy = finalSpaceResults.reduce((s, sp) => s + sp.occupancy, 0) + autoDeckOcc + circulationOcc
-    const gymTypes = ["Exercise Room (Equipment)", "Exercise Room (Concentrated)"]
-    const totalGymSF = spaces.filter((s) => gymTypes.includes(s.type)).reduce((s, sp) => s + sp.squareFeet, 0)
+    const totalGymSF = spaces
+      .filter(s => isGymType(s.type) && inBoundsSF(s))
+      .reduce((sum, s) => sum + s.squareFeet, 0)
 
     return {
       spaceResults: finalSpaceResults, computedShared, totalEquipmentSpace, conditionedSF, unconditionedSF, totalSF, farSF, totalOccupancy, totalGymSF,
@@ -530,6 +634,7 @@ export default function OccupancyCalculator() {
             }
             onDuplicate={duplicateSpace}
             onDeleteSpace={removeSpace}
+            onRenameSpace={(id, name) => updateSpace(id, { name })}
           />
         </section>
 

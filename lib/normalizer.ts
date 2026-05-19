@@ -85,6 +85,8 @@ const AppStateRawSchema = z
     max_occupants: z.coerce.number().min(0).optional(),
     farCap: z.coerce.number().min(0).optional(),
     far_cap: z.coerce.number().min(0).optional(),
+    maxBathrooms: z.coerce.number().min(0).optional(),
+    max_bathrooms: z.coerce.number().min(0).optional(),
   })
   .passthrough()
 
@@ -159,6 +161,7 @@ export function normalizeImportedJson(raw: unknown): NormalizeResult {
       unconditionedLimit: d.unconditionedLimit ?? d.unconditioned_limit ?? 500,
       maxOccupants: d.maxOccupants ?? d.max_occupants,
       farCap: d.farCap ?? d.far_cap,
+      maxBathrooms: d.maxBathrooms ?? d.max_bathrooms,
       spaceLayouts: {},
     },
   }

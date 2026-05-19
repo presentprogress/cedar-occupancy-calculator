@@ -68,6 +68,7 @@ const initialState: AppState = {
   unconditionedLimit: 500,
   maxOccupants: undefined,
   farCap: undefined,
+  maxBathrooms: undefined,
   spaceLayouts: defaultLayouts,
   enclosure: { x: 1, y: 1, w: 54, h: 115 },
 }
@@ -110,7 +111,7 @@ export default function OccupancyCalculator() {
     return () => window.removeEventListener("keydown", h)
   }, [undo])
 
-  const { spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts, enclosure } = appState
+  const { spaces, equipment, unconditionedLimit, maxOccupants, farCap, maxBathrooms, spaceLayouts, enclosure } = appState
 
   // ── Space mutations ──────────────────────────────────────────────────────────
   const addSpace = () => {
@@ -453,8 +454,10 @@ export default function OccupancyCalculator() {
       remainingOccupantLoad: maxOccupants !== undefined ? maxOccupants - totalOccupancy : undefined,
       wc: getWCRequirements(totalOccupancy),
       lavatories: getLavatoryCount(totalOccupancy),
+      bathroomsOverLimit: maxBathrooms !== undefined && getWCRequirements(totalOccupancy).total > maxBathrooms,
+      remainingBathrooms: maxBathrooms !== undefined ? maxBathrooms - getWCRequirements(totalOccupancy).total : undefined,
     }
-  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap, spaceLayouts, enclosure, appState.plannerLayout])
+  }, [spaces, equipment, unconditionedLimit, maxOccupants, farCap, maxBathrooms, spaceLayouts, enclosure, appState.plannerLayout])
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -498,7 +501,7 @@ export default function OccupancyCalculator() {
         <section className="panel">
           <div className="panel-head">
             <span className="label-eyebrow">Inputs</span>
-            <span className="label-eyebrow">3 params</span>
+            <span className="label-eyebrow">4 params</span>
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
             <div className="flex items-center gap-2">
@@ -523,6 +526,19 @@ export default function OccupancyCalculator() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <Label htmlFor="max-bath" className="whitespace-nowrap text-xs text-muted-foreground">Max Bathrooms</Label>
+              <Input id="max-bath" type="number" value={maxBathrooms ?? ""} placeholder="—"
+                onChange={(e) => setAppState((prev) => ({
+                  ...prev, maxBathrooms: e.target.value ? Number(e.target.value) : undefined,
+                }))}
+                className="h-7 w-20 text-sm" />
+              {calc.bathroomsOverLimit && (
+                <Badge variant="destructive" className="h-6 gap-1 text-xs">
+                  <AlertTriangle className="h-3 w-3" />+{calc.wc.total - maxBathrooms!} WC
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
               <Label htmlFor="uncond-limit" className="whitespace-nowrap text-xs text-muted-foreground">Uncond. Limit (SF)</Label>
               <Input id="uncond-limit" type="number" value={unconditionedLimit}
                 onChange={(e) => setAppState((prev) => ({
@@ -541,7 +557,7 @@ export default function OccupancyCalculator() {
         {/* ── Hero + Chart (primary KPIs first) ── */}
         <div className="flex gap-4 items-stretch">
           <HeroMetrics
-            className="basis-[48%] shrink-0 min-w-0"
+            className="basis-[64%] shrink-0 min-w-0"
             totalOccupancy={calc.totalOccupancy}
             totalSF={calc.totalSF}
             conditionedSF={calc.conditionedSF}
@@ -552,6 +568,10 @@ export default function OccupancyCalculator() {
             farCap={farCap}
             farOverLimit={calc.farOverLimit}
             remainingOccupantLoad={calc.remainingOccupantLoad}
+            totalBathrooms={calc.wc.total}
+            maxBathrooms={maxBathrooms}
+            bathroomsOverLimit={calc.bathroomsOverLimit}
+            remainingBathrooms={calc.remainingBathrooms}
           />
           <OccupancyChart
             className="flex-1 min-w-0"

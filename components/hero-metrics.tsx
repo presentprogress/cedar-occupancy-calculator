@@ -13,6 +13,10 @@ interface HeroMetricsProps {
   farCap?: number
   farOverLimit: boolean
   remainingOccupantLoad?: number
+  totalBathrooms: number
+  maxBathrooms?: number
+  bathroomsOverLimit: boolean
+  remainingBathrooms?: number
   className?: string
 }
 
@@ -27,12 +31,17 @@ export function HeroMetrics({
   farCap,
   farOverLimit,
   remainingOccupantLoad,
+  totalBathrooms,
+  maxBathrooms,
+  bathroomsOverLimit,
+  remainingBathrooms,
   className = "",
 }: HeroMetricsProps) {
   const overOccupancy = remainingOccupantLoad !== undefined && remainingOccupantLoad < 0
+  const overBathrooms = remainingBathrooms !== undefined && remainingBathrooms < 0
 
   return (
-    <section className={`grid grid-cols-2 gap-4 ${className}`}>
+    <section className={`grid grid-cols-3 gap-4 ${className}`}>
       <MetricPanel
         eyebrow="IBC Occupant Load"
         secondary="IBC 1004.5"
@@ -91,6 +100,32 @@ export function HeroMetrics({
                   ? `+${(conditionedSF - farCap).toLocaleString()} over`
                   : `${(farCap - conditionedSF).toLocaleString()} left`,
                 warn: farOverLimit,
+              }
+            : null,
+        ]}
+      />
+
+      <MetricPanel
+        eyebrow="Bathrooms"
+        secondary="IBC 2902.1"
+        value={totalBathrooms.toLocaleString()}
+        unit="WCs"
+        emphasize={!overBathrooms}
+        warn={overBathrooms}
+        rows={[
+          maxBathrooms !== undefined
+            ? {
+                label: "Cap",
+                value: maxBathrooms.toLocaleString(),
+              }
+            : { label: "Cap", value: "—", muted: true },
+          maxBathrooms !== undefined
+            ? {
+                label: overBathrooms ? "Over" : "Remaining",
+                value: overBathrooms
+                  ? `+${Math.abs(remainingBathrooms!).toLocaleString()}`
+                  : remainingBathrooms!.toLocaleString(),
+                warn: overBathrooms,
               }
             : null,
         ]}

@@ -80,6 +80,7 @@ export interface AppState {
   unconditionedLimit: number
   maxOccupants?: number
   farCap?: number
+  maxBathrooms?: number
   /** Canvas layouts keyed by SpaceArea.id — SF = w × h */
   spaceLayouts: Record<string, SpaceLayout>
   /** Facility boundary — spaces outside do not count toward occupancy */

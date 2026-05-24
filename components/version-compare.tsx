@@ -158,6 +158,12 @@ export function VersionCompare({ open, onOpenChange }: Props) {
                   unit=" SF"
                 />
                 <StatRow
+                  label="Max Bathrooms Cap"
+                  a={stateA.maxBathrooms ?? 0}
+                  b={stateB.maxBathrooms ?? 0}
+                  unit=" WCs"
+                />
+                <StatRow
                   label="Remaining Load"
                   a={(stateA.maxOccupants ?? 0) - totalOccA}
                   b={(stateB.maxOccupants ?? 0) - totalOccB}
